@@ -1,0 +1,48 @@
+ui: True
+skip_api_call: False
+
+# If skip_api_call is True and skip list is None, all existing questions will skip api call.If skip_api_call is True and skip list is not None, only questions in skip list will skip api call, if the results of those questions are present already.If skip_api_call is False, all questions will go through api call.
+skip_list: []
+
+# OpenAI connection parameters
+connection_params:
+  # Model platform - Can be openai or azure
+  platform: "azure"
+  # API type - Can be openai or azure
+  api_type: "azure"
+  # End point of Azure OpenAI resource group
+  api_base: "https://gpt4query.openai.azure.com/"
+  # API version. Search for microsoft/ openai docs for getting API version corresponding to the model version that you deployed in the Azure OpenAI resource group
+  api_version: "2023-03-15-preview"
+
+user_inputs:
+  # Works only if `ui` is set as False
+  # Please add "Multiple charts:" as the prefix to the question if multiple charts are required for the question.
+  question:
+  # Works only if `ui` is set as False
+  # leave it blank if not applicable
+  additional_context:
+
+# If table is exceeding the GPT's token limitation, below config value will be used first to take top n rows of the table.
+# If its still exceeding, top n rows will be automatically halved till it isn't exceeding token limits.
+table_top_rows: 1000
+
+# Threshold above which a question will be considered a why question. Ranges from 0-1. 1 being exactly why question.
+# If it's blank, no question will be treated as why qn.
+why_question_threshold:
+
+# Time (sec) to sleep before making another request
+time_delay: 10
+
+# To create response.json file to be used as a parser to front-end web application.
+create_json: True
+
+bot_response: "rule_based"
+
+# Sentence encode model and cosine similarity threshold for identifying similar questions and columns.
+# Number of columns per chunk - For similar questions, new columns are identified based on new word chunks in the user question.
+# The number of such columns identified can be changed using this parameter.
+similarity_check:
+  model: "all-MiniLM-L6-v2"
+  threshold: 100
+  num_columns_per_chunk: 10

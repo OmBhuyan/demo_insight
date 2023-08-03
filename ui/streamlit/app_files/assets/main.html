@@ -1,0 +1,35 @@
+<script>
+    const TotalDom = window.parent.document
+    let LibraryToggleMenu = "Categorizers"
+
+    TotalDom.body.addEventListener('click', function (e) {
+        if (e.target.parentElement.classList.contains('LibraryCardheading')) {
+
+            const allActiveC = TotalDom.getElementsByClassName('activeC')
+            for (let i = 0; i < allActiveC.length; i++) {
+                if (allActiveC[i].classList.contains('activeC')) {
+                    allActiveC[i].classList.remove('activeC')
+                }
+            }
+            LibraryToggleMenu = e.target.innerHTML
+            e.target.classList.add('activeC')
+
+            const allMenus = TotalDom.getElementsByClassName('menu')
+            for (let i = 0; i < allMenus.length; i++) {
+
+                allMenus[i].style.display = "none"
+
+            }
+            TotalDom.getElementsByClassName(LibraryToggleMenu)[0].style.display = "flex"
+
+            const allLeftText = TotalDom.querySelectorAll('.LibraryCardBodyLeft div')
+            for (let i = 0; i < allLeftText.length; i++) {
+
+                allLeftText[i].style.display = "none"
+
+            }
+            TotalDom.getElementById(LibraryToggleMenu).style.display = "block"
+        }
+    })
+
+</script>

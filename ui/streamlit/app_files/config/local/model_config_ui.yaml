@@ -1,0 +1,202 @@
+
+text_to_query:
+  model_params:
+    engine: "gpt_35_turbo" # model name is not standard in case of azure, contact srikant for new model name if you get an error
+    temperature: 0
+    max_tokens: 500
+    n: 1
+    # leave blank for None
+    stop:
+    function: "ChatCompletion"
+    timeout: 15
+    max_tries: 3
+
+  prompts:
+    system_role: "You are a SQL developer who assists the business users."
+    static_prompt:
+      "Strictly follow the data dictionary, generate a sql query to answer the below question:
+      \n Data dictionary: '<data_dictionary>'.
+      \n Question:'<question>'"
+
+    additional_context: "'<additional_context>'"
+
+    guidelines:
+      "\nFollow the below mentioned guidelines while generating response:
+      \n Guideline 1: Output query MUST be syntactically correct on a SQLite database.
+      \n Guideline 2: While generating new columns, understand dtype (like date time, integer, float, text, etc.) of the columns based on description and question, then use appropriate syntax.
+      \n Guideline 3: Give meaningful names to the output table columns.
+      \n Guideline 4: SQL query should be prefixed by <start> and suffixed by <end>.
+      \n Guideline 5: While filtering for a keyword, user may not provide the exact name, so use functions like 'LIKE operators' and, handle the case sensitivity.
+      \n Guideline 6: Also give the data dictionary: [{'column_name':, 'description':, 'unit_of_measurement':<use the generated query>, 'id':<Yes/No - use the data dictionary to get the ID details>}] of the resulting table prefixed by <start_dict> and suffixed by <end_dict>."
+      #  \n Guideline 7: Use WITH Clause instead of creating tables."
+
+    example_responses:
+    # example_responses: "\nFollowing are some expected questions and responses:
+
+    #                     \n Q1: 'What is the average time for unloading after arrival?'
+    #                     \n A1: 'SELECT AVG(drop_trackingarrivaltime_minus_unload_date_timediff) AS avg_unload_time_after_arrival FROM stream_data;'
+
+    #                     \n Q2: 'Display summary by carrier, how many shipments are on-time or delayed?'
+    #                     \n A2: 'SELECT carrier_name, SUM(CASE WHEN current_state = 'on_time' THEN 1 ELSE 0 END) AS on_time_shipments,SUM(CASE WHEN current_state = 'delayed' THEN 1 ELSE 0 END) AS delayed_shipments  FROM stream_data  GROUP BY carrier_name;'"
+
+query_to_chart_type:
+  model_params:
+    engine: "gpt_35_turbo"
+    temperature: 0
+    max_tokens: 500
+    n: 1
+    # leave blank for None
+    stop:
+    function: "ChatCompletion"
+    timeout: 15
+    max_tries: 3
+
+  prompts:
+    system_role: "You are an analytics consultant who assists the business users."
+    static_prompt:
+      "With the given data dictionary, suggest one appropriate chart type with the axis details which can be used to answer the provided business question.
+      \n Data dictionary : '<data_dictionary>'
+      \n Question : '<question>'"
+
+    additional_context:
+      "\nFollowing is the additional context to answer the quesion:
+      \n'<additional_context>'"
+
+    guidelines:
+      "\nFollow the below mentioned guidelines while generating response:
+      \n Guideline 1: Use the column names from the data dictionary for giving the suggestion.
+      \n Guideline 2: Assume all columns necessary to answer the question are already available in the columns list.
+      \n Guideline 3: Give appropriate axis labels and chart title and it should be descriptive and not be same as the column names.
+      \n Guideline 4: If you encounter columns with YYYY-WW or YYYY-MM formats, add prefix 'W' or 'M' before the week or month value."
+      # \n Guideline 4: If the chart type suggested needs outlier imputation for better visualization, give a special mention about that in addition to the chart type suggestion."
+
+query_to_chart_code:
+  model_params:
+    engine: "gpt_35_turbo" # gpt_35_turbo / text-davinci-003
+    temperature: 0
+    max_tokens: 500
+    n: 1
+    # leave blank for None
+    stop:
+    function: "ChatCompletion"
+    timeout: 15
+    max_tries: 3
+
+  prompts:
+    system_role: "You are a plotly visualization expert who assists the business users."
+    static_prompt:
+      "Give an executable plotly code with import statement based on the provided chart type suggestion.
+      \n The axis labels and titles mentioned in the suggestion should be incorporated in the code.
+      \n Data dictionary : '<data_dictionary>'
+      \n Question : '<question>'
+      \n Chart Type Suggestion : '<additional_context>'"
+
+    guidelines:
+      "\nFollow the below mentioned guidelines while generating response:
+      \n Guideline 1: Use the column names from the data dictionary in the code.
+      \n Guideline 2: Assume all columns and data filters necessary to answer the question are already available in the pandas dataframe 'df'.
+      \n Guideline 3: If secondary axis is specified in the suggestion, use make_subplots function with plotly graph objects with proper import statements.
+      \n Guideline 4: If you encounter columns with YYYY-WW or YYYY-MM formats, add prefix 'W' or 'M' before the week or month value."
+
+table_to_insight_questions:
+  model_params:
+    engine: "gpt_test" # gpt_35_turbo / text-davinci-003
+    temperature: 0
+    max_tokens:
+    n: 1
+    # leave blank for None
+    stop:
+    function: "ChatCompletion"
+    timeout: 15
+    max_tries: 3
+
+  prompts:
+    system_role: "You are a business expert who comes up with questions to gain insights."
+    static_prompt: "Given a table that has data dictionary given below, generate two different questions to gain business insights from this table.\nData dictionary: '<data_dictionary>'"
+
+    additional_context:
+
+    guidelines:
+      "\nFollow the below mentioned guidelines while generating response:
+      \nGuideline 1: All the questions must contain different meaning.
+      \nGuideline 2: All questions must be prefixed with 'Question '"
+
+
+summarize_insights:
+  model_params:
+    engine: "gpt_test" # gpt_35_turbo / text-davinci-003
+    temperature: 0
+    max_tokens:
+    n: 1
+    # leave blank for None
+    stop:
+    function: "ChatCompletion"
+    timeout: 15
+    max_tries: 3
+
+  prompts:
+    system_role: "You are an expert in giving executive summaries to business audience."
+    static_prompt: "Given below text, summarize to a business audience to gain insights.\nText:\n<suggestion>"
+
+    additional_context:
+
+    guidelines:
+      "\nFollow the below mentioned guidelines while generating response:
+      \n Guideline 1: Use bulleted list for each points in the summary.
+      \n Guideline 2: summary should contain one or two sentences.
+      \n Guideline 3: summary should be provided based on factual data."
+
+summarize_tables:
+  model_params:
+    engine: "gpt_test" # gpt_35_turbo / text-davinci-003
+    temperature: 0
+    max_tokens:
+    n: 1
+    # leave blank for None
+    stop:
+    function: "ChatCompletion"
+    timeout: 15
+    max_tries: 3
+
+  prompts:
+    system_role: "You are an expert data summarizer, who explains summary of table data with all calculated statistical values"
+    static_prompt:
+      "Given below table, study and provide summary to the user, based on the following strategies:
+      - describe all columns statistically, including all numericals
+      - decribe any relation amongst two or more columns of the table and connect them numerically
+      - Keep the output less than three sentences
+      The table is given as \nTable:\n<table>"
+
+    additional_context:
+
+    guidelines:
+      "\nFollow the below mentioned guidelines while generating response:
+      \n Guideline 1: Use bulleted list for each points in the summary.
+      \n Guideline 2: summary should contain one or two sentences.
+      \n Guideline 3: summary should be provided based on factual data."
+
+insight_questions_to_code:
+  model_params:
+    engine: "gpt_test" # gpt_35_turbo / text-davinci-003
+    temperature: 0
+    max_tokens:
+    n: 1
+    # leave blank for None
+    stop:
+    function: "ChatCompletion"
+    timeout: 15
+    max_tries: 3
+
+  prompts:
+    system_role: "You are a python statistics expert who assists the business users."
+    static_prompt: "Given a pandas dataframe 'df' with data dictionary given below, give an executable python code to answer the below questions.\nData dictionary: '<data_dictionary>'\nQuestions:\n<question>"
+
+    additional_context:
+
+    guidelines:
+      "\nFollow the below mentioned guidelines while generating response:
+      \n Guideline 1: Use only the column names from the Data dictionary in the code.
+      \n Guideline 2: Comment '#----' at the end of each questions' answer in a new line.
+      \n Guideline 3: Python code should be prefixed by '<start>' and suffixed by '<end>'.
+      \n Guideline 4: Assume all columns and data filters necessary to answer the question are already available in the pandas dataframe 'df'.
+      \n Guideline 5: Each print statement in the code should have a description of the question."

@@ -1,0 +1,92 @@
+ui: True
+skip_api_call: True
+
+# If skip_api_call is True and skip list is None, all existing questions will skip api call.If skip_api_call is True and skip list is not None, only questions in skip list will skip api call, if the results of those questions are present already.If skip_api_call is False, all questions will go through api call.
+skip_list:
+  [
+    "How many shipments are getting prepared at Location 14?",
+    "How many shipments are ready to be dispatched from Location 14?",
+    "How many shipments are headed towards Location 21?",
+    "Display on-time delayed and at risk shipments by carrier for all active trips",
+    "Which carriers have highest on-time delivery?",
+    "What is the distribution of average order to delivery time for ridgebite brand?",
+    "What is the weekly average of order to delivery time for ridgebite brand?",
+    "Which shipments are carrying ridgebite brand?",
+    "Which carriers are mostly shipping on-time?",
+    "What is the proportion of on-time vs delayed shipments for each carrier",
+    "What is the proportion of on-time vs delayed shipments for each carrier for active trips?",
+    "what is the proportion of on-time vs delayed shipments in the last 1 week?",
+    "what is the proportion of on-time vs delayed by plants?",
+    "which plants are taking longest to load a shipment for all completed trips?",
+    "How is the average loading time and dispatch time at location 9?",
+    "Which shipments are carrying cheezeburst brand?",
+    "How many trips are completed per week in the last 5 months?",
+    "How much quantity of each brand was shipped in the last 7 months?",
+    "How much quantity of each brand was shipped in the last 7 months?; Take brand column from material table.",
+    "Show on-time shipments by carrier",
+    "Show on-time shipments by carrier ; Add delayed shipments to above",
+    "How many trips are completed each week in the last 5 months?",
+    "build a regression model between ordered and received quantities after dropping null records.",
+    "how many shipments were delivered each week in October-2022 at location 100?",
+    "How much quantity of brand FlavorCrave was shipped month?",
+    "Create a new column called on_road_time which is difference of arrival time at destination and departure time from source, and calculate its average between each source and destination location.",
+    "What is the average difference between total ordered quantity and total received quantity month on month?",
+    "build a regression model to evaluate the reasons for this difference between ordered and received",
+    "build a regression model to evaluate the reasons for this difference between ordered and received; which top 3 brands have highest ordered quantities and highest unshipped quantities",
+    "What top 3 brands have highest ordered quantity and highest unshipped quantity",
+    "What top 3 brands have highest ordered quantity and highest unshipped quantity; use brand from material data and trip type from invoice data",
+    "What top 3 brands have highest ordered quantity and highest unshipped quantity in the last 3 months",
+    "What top 3 brands have highest ordered quantity and highest unshipped quantity in the last 3 months; use brand from material data and trip type from invoice data",
+    "Build a regression model for average on road time and source to destination distance",
+    "Which carriers have below average on time shipments?",
+    "Which carriers have above and below average on time shipments?",
+    "build a random forest model between ordered and shipped quantities",
+    "build a random forest model between ordered and shipped quantities after dropping null records",
+    "Which shipments are carrying cheezeburst brand?; What is the on time status of these?",
+    "Which shipments are carrying cheezeburst brand? ; What is the on time status of these? ; Add source and destination information to this",
+    "what is the proportion of on-time vs delayed shipments in the last 20 weeks?",
+    "Add a new column called on_road_time which is the difference of arrival time at destination and departure time from source; What is the average on road time between each source and destination pair? ; Build a regression model for average on road time and source to destination distance",
+  ]
+
+# OpenAI connection parameters
+connection_params:
+  # Model platform - Can be openai or azure
+  platform: "azure"
+  # API type - Can be openai or azure
+  api_type: "azure"
+  # End point of Azure OpenAI resource group
+  api_base: "https://gpt4query.openai.azure.com/"
+  # API version. Search for microsoft/ openai docs for getting API version corresponding to the model version that you deployed in the Azure OpenAI resource group
+  api_version: "2023-03-15-preview"
+
+user_inputs:
+  # Works only if `ui` is set as False
+  # Please add "Multiple charts:" as the prefix to the question if multiple charts are required for the question.
+  question:
+  # Works only if `ui` is set as False
+  # leave it blank if not applicable
+  additional_context:
+
+# If table is exceeding the GPT's token limitation, below config value will be used first to take top n rows of the table.
+# If its still exceeding, top n rows will be automatically halved till it isn't exceeding token limits.
+table_top_rows: 1000
+
+# Threshold above which a question will be considered a why question. Ranges from 0-1. 1 being exactly why question.
+# If it's blank, no question will be treated as why qn.
+why_question_threshold:
+
+# Time (sec) to sleep before making another request
+time_delay: 10
+
+# To create response.json file to be used as a parser to front-end web application.
+create_json: False
+
+bot_response: "rule_based"
+
+# Sentence encode model and cosine similarity threshold for identifying similar questions and columns.
+# Number of columns per chunk - For similar questions, new columns are identified based on new word chunks in the user question.
+# The number of such columns identified can be changed using this parameter.
+similarity_check:
+  model: "all-MiniLM-L6-v2"
+  threshold: 0.8
+  num_columns_per_chunk: 10

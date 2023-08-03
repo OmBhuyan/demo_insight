@@ -1,0 +1,28 @@
+torch==1.13.1
+torchvision==0.14.1
+# torch@https://download.pytorch.org/whl/cpu/torch-1.13.1%2Bcpu-cp38-cp38-linux_x86_64.whl
+# torchvision@https://download.pytorch.org/whl/cpu/torchvision-0.14.1%2Bcpu-cp38-cp38-linux_x86_64.whl
+en_core_web_lg@https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.5.0/en_core_web_lg-3.5.0-py3-none-any.whl
+# en_core_web_sm@https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.5.0/en_core_web_sm-3.5.0-py3-none-any.whl
+openai==0.27.2
+tiktoken==0.3.3
+gensim==4.2.0
+numpy==1.22.0
+transformers==4.22.0
+nltk==3.7
+spacy==3.5.3
+kaleido==0.0.1
+mysql-connector-python==8.0.32
+statsmodels==0.13.5
+plotly==5.9.0
+gradio==3.26.0
+scikit-learn==1.2.2
+seaborn==0.12.2
+pandas==1.4.2
+streamlit==1.21.0
+nbformat==5.9.0
+adlfs==2023.4.0
+sentence_transformers==2.2.2
+sql_metadata==2.8.0 
+openpyxl==3.1.2
+wrapt-timeout-decorator==1.4.0
