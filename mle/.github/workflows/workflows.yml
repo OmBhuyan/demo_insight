@@ -8,14 +8,14 @@ permissions:
   contents: read
 
 env:
-  AZURE_FUNCTIONAPP_NAME: 'tigernlpapiv3'   # set this to your function app name on Azure
-  LOGIN_SERVER: 'demoacr4312.azurecr.io'              # set this to login server for your private container registry (e.g. 'contoso.azurecr.io', 'index.docker.io' )
-  REGISTRY: 'demoacr4312.azurecr.io'                 # set this to proper value for REGISTRY
+  AZURE_FUNCTIONAPP_NAME: 'trial8787'   # set this to your function app name on Azure
+  LOGIN_SERVER: 'demoacr2710.azurecr.io'              # set this to login server for your private container registry (e.g. 'contoso.azurecr.io', 'index.docker.io' )
+  REGISTRY: 'demoacr2710.azurecr.io'                 # set this to proper value for REGISTRY
   NAMESPACE: 'demo-image'               # set this to proper value for NAMESPACE
   IMAGE: 'demo-image'                       # set this to proper value for IMAGE
-  TAG: 'large-model'                           # set this to proper value for TAG
-  REGISTRY_USERNAME: 'demoacr4312'
-  REGISTRY_PASSWORD: 'JEXwDMLx2s9xvrDwreVJ4PSeLVoC5lBoYxk3EBwLN/+ACRD1x+EI'
+  TAG: 'latest'                           # set this to proper value for TAG
+  REGISTRY_USERNAME: '81443c70-2cc6-426e-80eb-fc458b189e87'
+  REGISTRY_PASSWORD: 'd5O8Q~gd4ItbrUTjAEp3AfkzRy_mHd9-MQdikawz'
 
 jobs:
   build-and-push:
@@ -39,4 +39,10 @@ jobs:
         # Please change the path to your directory for docker build
         docker build . -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ env.TAG }}
         docker push ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ env.TAG }}
+    - name: 'Run Azure Functions Container Action'
+      uses: Azure/functions-container-action@v1
+      id: fa
+      with:
+        app-name: ${{ env.AZURE_FUNCTIONAPP_NAME }}
+        image: ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ env.TAG }}  
 
