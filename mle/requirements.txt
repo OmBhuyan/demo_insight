@@ -36,7 +36,7 @@ urllib3==2.0.2
 uvicorn==0.22.0
 Werkzeug==2.3.4
 # Query insights packages
-git+https://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@github.com/tigerrepository/Insights-Pro.git@dev#egg=query_insights
+git+https://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@github.com/OmBhuyan/demo_insight.git@main#egg=query_insights
 # openai==0.27.2
 # tiktoken==0.3.3
 # gensim==4.2.0

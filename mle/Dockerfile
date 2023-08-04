@@ -6,7 +6,7 @@ ENV AzureWebJobsScriptRoot=/home/site/wwwroot \
     AzureFunctionsJobHost__Logging__Console__IsEnabled=true
 
 RUN apt-get update && apt-get install -y git
-COPY requirements.txt /
+COPY mle/requirements.txt /
 RUN pip install -r /requirements.txt
 
 
