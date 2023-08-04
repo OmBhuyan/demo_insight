@@ -29,8 +29,8 @@ jobs:
       uses: azure/docker-login@v1
       with:
         login-server: demoacr2710.azurecr.io
-        username: ${{ secrets.REGISTRY_USERNAME }}
-        password: ${{ secrets.REGISTRY_PASSWORD }}
+        username: demoacr2710
+        password: Vcic8zmTKdnaM3S6NuyxV5LtTeEoY5fd29+j6wY4qj+ACRCGC//O
 
     - name: 'Compose Customized Docker Image'
       shell: bash
