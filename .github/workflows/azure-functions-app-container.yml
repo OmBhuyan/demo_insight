@@ -53,8 +53,8 @@ jobs:
         run: |
           # If your function app project is not located in your repository's root
           # Please change the path to your directory for docker build
-          docker build -t ${{env.REGISTRY}}/${{env.IMAGE}}:${{env.TAG}} -f deploy/azure_function/Dockerfile .
-          docker push ${{env.REGISTRY}}/${{env.IMAGE}}:${{env.TAG}}
+            docker build . -t ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ env.TAG }} -f deploy/azure_function/Dockerfile
+            docker push ${{ env.REGISTRY }}/${{ env.IMAGE }}:${{ env.TAG }}
         
       - name: 'Run Azure Functions Container Action'
         uses: Azure/functions-container-action@v1
