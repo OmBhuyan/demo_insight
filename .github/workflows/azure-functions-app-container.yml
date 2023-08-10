@@ -15,8 +15,8 @@ on:
 env:                          # set this to proper value for TAG
   REGISTRY_USERNAME: 'demoacr2710 '
   AZURE_FUNCTIONAPP_NAME: 'trial8787'   # set this to your function app name on Azure
-  LOGIN_SERVER: 'demoacr2710 .azurecr.io'              # set this to login server for your private container registry (e.g. 'contoso.azurecr.io', 'index.docker.io' )
-  REGISTRY: 'demoacr2710 .azurecr.io'                 # set this to proper value for REGISTRY
+  LOGIN_SERVER: 'demoacr2710.azurecr.io'              # set this to login server for your private container registry (e.g. 'contoso.azurecr.io', 'index.docker.io' )
+  REGISTRY: 'demoacr2710.azurecr.io'                 # set this to proper value for REGISTRY
   IMAGE: 'demo-app'                       # set this to proper value for IMAGE
   TAG: 'latest'                           # set this to proper value for TAG
 
