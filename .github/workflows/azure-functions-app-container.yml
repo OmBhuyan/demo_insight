@@ -18,7 +18,7 @@ env:                          # set this to proper value for TAG
   LOGIN_SERVER: 'demoacr4312.azurecr.io'              # set this to login server for your private container registry (e.g. 'contoso.azurecr.io', 'index.docker.io' )
   REGISTRY: 'demoacr4312.azurecr.io'                 # set this to proper value for REGISTRY
   IMAGE: 'demo-app'                       # set this to proper value for IMAGE
-  TAG: 'latest'                           # set this to proper value for TAG
+  TAG: 'alpha-1'                           # set this to proper value for TAG
 
 
 jobs:
