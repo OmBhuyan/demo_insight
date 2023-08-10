@@ -1,1 +1,1 @@
-# demo_insight
+# query_insights_generator

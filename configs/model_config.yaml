@@ -31,7 +31,7 @@ text_to_query:
 
     guidelines:
       "\nFollow the below mentioned guidelines while generating response:
-      \n Guideline 1: Output query MUST be syntactically correct on a SQLite database.
+      \n Guideline 1: Output query MUST be syntactically correct on a <sql> database.
       \n Guideline 2: While generating new columns, understand dtype (like date time, integer, float, text, etc.) of the columns based on description and question, then use appropriate syntax.
       \n Guideline 3: Give meaningful names to the output table columns.
       \n Guideline 4: SQL query should be prefixed by <start> and suffixed by <end>.
@@ -70,7 +70,7 @@ query_to_chart_type:
     max_tries: 3
 
   prompts:
-    system_role: "You are an analytics consultant who assists the business users."
+    system_role: "You are an analytics consultant who assists the business users. Respond strictly in <language> language."
     static_prompt:
       "With the given data dictionary, suggest one appropriate chart type with the axis details which can be used to answer the provided business question.
       \n\nQuestion: '<question>'
@@ -158,7 +158,7 @@ table_to_insight_questions:
     max_tries: 3
 
   prompts:
-    system_role: "You are a business expert who comes up with questions to gain insights."
+    system_role: "You are a business expert who comes up with questions to gain insights. Questions should only be asked in <language> language."
     static_prompt: "Given a table that has data dictionary given below, generate two different questions to gain business insights from this table.\n\nData dictionary:\n<data_dictionary>"
 
     additional_context:
@@ -181,7 +181,7 @@ questions_to_insights:
     max_tries: 3
 
   prompts:
-    system_role: "You are an business expert who gives insights to a business audience."
+    system_role: "You are an business expert who gives insights to a business audience. Insights should only be provided in <language> language."
     static_prompt: "Given a table, give top 3 business insights by answering the following question\n\nQuestions: '<question>'\n\nTable:\n<table>"
 
     additional_context:
@@ -203,7 +203,7 @@ summarize_insights:
     max_tries: 3
 
   prompts:
-    system_role: "You are an expert in giving executive summaries to business audience."
+    system_role: "You are an expert in giving executive summaries to business audience. Summary should only be provided in <language> language."
     static_prompt: "Given below text, summarize to a business audience to gain insights.\n\nText:\n<suggestion>"
 
     additional_context:
@@ -227,7 +227,7 @@ summarize_tables:
     max_tries: 3
 
   prompts:
-    system_role: "You are an expert data summarizer, who explains summary of table data with all calculated statistical values"
+    system_role: "You are an expert data summarizer, who explains summary of table data with all calculated statistical values. Summary should only be provided in <language> language."
     static_prompt:
       "Given below table, study and provide summary to the user, based on the following strategies:
       - describe all columns statistically, including all numericals
@@ -256,7 +256,7 @@ insight_questions_to_code:
     max_tries: 3
 
   prompts:
-    system_role: "You are a python statistics expert who assists the business users."
+    system_role: "You are a python statistics expert who assists the business users. Reply to the business user only in <language> language."
     static_prompt: "Given a pandas dataframe 'df' with data dictionary given below, give an executable python code to answer the below questions.\n\nQuestions: '<question>'\n\nData dictionary:\n<data_dictionary>"
 
     additional_context:

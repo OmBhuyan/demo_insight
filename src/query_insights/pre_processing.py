@@ -249,7 +249,7 @@ class HybridQuestionClassifier:
         return sorted(reason_based_questions, key=lambda x: x[1], reverse=True)
 
 
-class DatabaseSetup:
+class DBConnection:
     """Connecting to database and creating a table in that database
 
     Parameters
@@ -260,12 +260,8 @@ class DatabaseSetup:
         Table name for the imported dataframe in database.
     database : str
         Database server example: mysql,sqlite
-    user_config : dict
-        input user_config dictionary for storing and accessing user-specific configurations.
     data_config : dict
         input data_config dictionary contains the paths to the data.
-    model_config : dict
-        input model_config dictionary for storing and accessing model-related configurations.
     database_name : str
         Database name where the table will be stored .
     logging_level : str, optional
@@ -280,9 +276,7 @@ class DatabaseSetup:
 
     def __init__(
         self,
-        user_config: dict,
         data_config: dict,
-        model_config: dict,
         database_name: str = None,
         fs=None,
     ):
@@ -297,8 +291,6 @@ class DatabaseSetup:
         # self.df = df
         # self.table_name = table_name
         self.database = data_config.db_params.db_name
-        self.user_config = user_config
-        self.model_config = model_config
         self.data_config = data_config
         self.database_name = database_name
         self._fs = fs or fsspec.filesystem("file")
@@ -348,11 +340,14 @@ class DatabaseSetup:
                 )
                 raise ValueError("database path doesn't exist")
 
+            self.logger.info("Connecting to SQLite database...")
+
             self.conn = load_sqlite3_database(
-                path=self.data_config.db_params.sqlite_database_path, fs=self._fs
+                path=self.data_config.db_params.sqlite_database_path,  fs=self._fs
             )
 
         elif self.database == "mysql":
+            self.logger.info("Connecting to MySQL database...")
             self.conn = self._mysql_connection_db()
 
         return self.conn
@@ -382,6 +377,7 @@ class DatabaseSetup:
             raise ValueError("Database name isn't given. Expected a string")
 
         if (self.database_name,) in all_tables:
+            self.logger.info(f"Connected to MySQL database: {self.database_name}")
             conn = mysql.connector.connect(
                 host=self.data_config.db_params.host,
                 user=self.data_config.db_params.username,
@@ -390,6 +386,7 @@ class DatabaseSetup:
             )
         else:
             mycursor.execute(f"CREATE DATABASE {self.database_name}")
+            self.logger.info(f"Created new database: {self.database_name}")
             conn = mysql.connector.connect(
                 host=self.data_config.db_params.host,
                 user=self.data_config.db_params.username,

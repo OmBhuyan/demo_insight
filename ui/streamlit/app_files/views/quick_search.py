@@ -4,7 +4,7 @@ import textwrap
 import streamlit as st
 from st_config import STConfig
 
-from query_insights.api import QueryInsights
+from query_insights.api import QueryInsights, config_init
 
 from .qi_utils import (
     initialize_session,
@@ -28,11 +28,13 @@ def get_context():
 
 def load_view():
     # creating Query Insights Object
+    user_config, data_config, model_config, debug_config = config_init(config.UI_USER_CONFIG_PATH, config.UI_DATA_CONFIG_PATH, config.UI_MODEL_CONFIG_PATH, config.UI_DEBUG_CONFIG_PATH)
+
     qi = QueryInsights(
-        user_config_path=config.UI_USER_CONFIG_PATH,
-        data_config_path=config.UI_DATA_CONFIG_PATH,
-        model_config_path=config.UI_MODEL_CONFIG_PATH,
-        debug_config_path=config.UI_DEBUG_CONFIG_PATH,
+        user_config=user_config,
+        data_config=data_config,
+        model_config=model_config,
+        debug_config=debug_config,
         api_key=os.environ.get("OPENAI_API_KEY"),
         logging_level="INFO",
     )

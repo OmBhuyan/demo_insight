@@ -16,7 +16,7 @@ def footer():
     st.markdown(
         """
         <div class="fixed-bottom" style="background-color: rgb(36, 41, 47);display:flex;justify-content:space-between;width:100%; height:30px;background-color:#24292f;">
-        </div>   
+        </div>
     """,
         unsafe_allow_html=True,
     )

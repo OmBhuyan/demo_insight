@@ -1,0 +1,45 @@
+path:
+  # Root folder of the project
+  parent: "."
+  # Path where the input data, db files, output folder (will be created in the code) are saved
+  input_data_path: data/db
+
+  # Path where the data dictionaries are available (one json file per one table mentioned in path.input_file_name section of this config)
+  data_dictionary_path: data/data_dictionary
+
+  # provide path to the txt file containing business overview. Use it only with GPT4
+  business_overview_path:
+
+  # Path where the API key is stored. This will be added as a temporary environment variable in the code
+  # TODO: Change this path after API key is moved to Azure blob
+  api_key_location: ${path.parent}/../../../tmp/azure_api_key_gpt4
+  # Output path where results will be saved
+  output_path: data/output_folder
+  # Experiment name. Sub folder inside output_path will be created with this name. All results of runs will be saved inside `output_path/exp_name`
+  exp_name: azure_test_02
+
+# Database connection parameters
+db_params:
+  # Database name. mysql and sqlite are supported at the moment
+  db_name: "sqlite"
+  # Hostname
+  host: "localhost"
+  # Username
+  username: "root"
+  # Path where the password to db connection is stored (valid when db_params.db_name is mysql)
+  password_path: #"/mnt/c/Users/chetan.subramani/Downloads/insights_generator/password_db/password.txt"
+  # Path where the db file for database is stored. Can be created using a notebook in support codes of this project
+  sqlite_database_path: data/db/database.db
+  chunk_size: 500000 #500000
+
+cloud_storage:
+  # Add connection parameters for DBFS. Leave platform blank for normal filestorage (Linux, Windows) and other entries will be ignored
+  # Platform of the cloud. Can be blank (for local FS) or "azure"
+  platform: "azure"
+  prefix_url: "abfs://"
+  DefaultEndpointsProtocol: "https"
+  # Add path where the Accountkey is stored
+  # Add the path in local FS and not in the cloud since we don't have access to the DBFS where this is read - this is used for establishing the connection
+  account_key_path: ${path.parent}/../../../tmp/nlpdevreact_azure
+  AccountName: "nlpdevreact"
+  EndpointSuffix: "core.windows.net"

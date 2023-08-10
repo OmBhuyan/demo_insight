@@ -893,14 +893,20 @@ def _complete_data_dict(output_table, raw_dict: dict, result_dict: list):
         _description_
     """
     final_data_dict = []
-    raw_dict_list = []
+    raw_dict_list_temp = []
     # to list the column dict {name, description} of all columns from all the tables present in the DB
     for _, dict_ in raw_dict.items():
-        raw_dict_list += dict_["columns"]
+        raw_dict_list_temp += dict_["columns"]
+
+    # rename all the "name" with "column_name"
+    raw_dict_list = []
+    for e in raw_dict_list_temp:
+        raw_dict_list.append({"column_name": e["name"], "description": e["description"]})
 
     # get the list of column names in the result dict and raw dict
     new_cols = np.array([i["column_name"] for i in result_dict])
-    raw_cols = np.array([i["name"] for i in raw_dict_list])
+    raw_cols = np.array([i["column_name"] for i in raw_dict_list])
+
     result_dict = np.array(result_dict)
     raw_dict_list = np.array(raw_dict_list)
 
@@ -913,8 +919,6 @@ def _complete_data_dict(output_table, raw_dict: dict, result_dict: list):
         # else if column name is present in raw dict use that column dictionary in the final dict
         elif col in raw_cols:
             col_dict = raw_dict_list[np.argwhere(col == raw_cols).ravel()][0]
-            # renaming the dictionary key from "name" to "column_name"
-            col_dict["column_name"] = col_dict.pop("name")
             final_data_dict.append(col_dict)
         # if it is not present in either dictionaries, then just add the column name and raise a warning
         else:

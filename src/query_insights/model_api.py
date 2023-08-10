@@ -23,6 +23,10 @@ class GPTModelCall:
         A string representing additional context to include in the prompt.
     connection_param_dict : dict
         A dictionary containing the parameters needed for the Azure's OpenAI API.
+    language : str
+        Language to answer the question in, for example "english", "spanish", "german", by default "english"
+    db_param_dict : dict
+        A dictionary containing the database information
     dictionary : dict, optional
         A dictionary representing the data dictionary of the data specified in the config file. Defaults to None.
     suggestion : str, optional
@@ -52,6 +56,10 @@ class GPTModelCall:
         A dictionary containing the parameters needed for the Azure's OpenAI API.
     prompt : str
         A string representing the final prompt.
+    db_param_dict : dict
+        A dictionary containing the database information
+    language : str
+        Language to answer the question in
 
     Methods
     -------
@@ -74,6 +82,8 @@ class GPTModelCall:
         question,
         additional_context,
         connection_param_dict,
+        language: str = "english",
+        db_param_dict=None,
         dictionary=None,
         business_overview=None,
         suggestion=None,
@@ -88,6 +98,11 @@ class GPTModelCall:
         if not self.api_key:
             raise ValueError("API key not found in environment variables")
         openai.api_key = self.api_key
+
+        # If language is None or empty string, default to "english" language
+        if language is None or not bool(str(language).strip()):
+            language = "english"
+        language = language.lower().title()
 
         self.dictionary = dictionary
         self.prompt_dict = prompt_dict
@@ -106,6 +121,8 @@ class GPTModelCall:
             self.sample_question = sample_input[0]
             self.sample_response = sample_input[1]
 
+        self.db_param_dict = db_param_dict
+        self.language = language
         self.generate_prompt()
         self.set_connection_params()
 
@@ -121,14 +138,14 @@ class GPTModelCall:
         Raises
         ------
         KeyError
-            If the 'platform' key is not found in the connection_param_dict dictionary.
+            If the 'api_type' key is not found in the connection_param_dict dictionary.
 
         Returns
         -------
         None
         """
         try:
-            if self.connection_param_dict["platform"] == "azure":
+            if self.connection_param_dict["api_type"] == "azure":
                 openai.api_type = self.connection_param_dict["api_type"]
                 openai.api_base = self.connection_param_dict["api_base"]
                 openai.api_version = self.connection_param_dict["api_version"]
@@ -177,11 +194,20 @@ class GPTModelCall:
                     [line for line in prompt.split("\n") if "<question>" not in line]
                 )
             if self.additional_context is not None:
-                prompt = prompt + f"\n{self.prompt_dict['additional_context']}"
+                prompt = f"{prompt}\n{self.prompt_dict['additional_context']}"
                 prompt = prompt.replace("<additional_context>", f"{self.additional_context}")
             if self.suggestion is not None:
                 prompt = prompt.replace("<suggestion>", f"{self.suggestion}")
-            prompt = prompt + f"\n{self.prompt_dict['guidelines']}"
+
+            prompt = f"{prompt}\n{self.prompt_dict['guidelines']}"
+            if self.db_param_dict is not None:
+                if self.db_param_dict["db_name"] is None:
+                    # If db_name is None, default to MySql
+                    sql_string = "MySql"
+                else:
+                    # Else sql string will be same as specified in config
+                    sql_string = self.db_param_dict["db_name"]
+                prompt = prompt.replace("<sql>", sql_string)
 
             data_dict_json_str = json.dumps(self.dictionary, indent=4)
             prompt = prompt.replace("<data_dictionary>", f"{data_dict_json_str}")
@@ -195,7 +221,7 @@ class GPTModelCall:
             # if bool(self.prompt_dict['additional_context']):
             #    prompt = prompt + f"\n{self.prompt_dict['additional_context']}"
             if self.business_overview is not None:
-                prompt = prompt + f"\n{self.prompt_dict['business_overview']}"
+                prompt = f"{prompt}\n{self.prompt_dict['business_overview']}"
                 prompt = prompt.replace("<business_overview>", f"{self.business_overview}")
             # if bool(self.prompt_dict["business_overview"]):
             #     if os.path.exists(self.prompt_dict["business_overview"]):
@@ -245,9 +271,14 @@ class GPTModelCall:
             current_message = [
                 {
                     "role": "system",
-                    "content": self.prompt_dict["system_role"],
+                    "content": self.prompt_dict["system_role"].replace(
+                        "<language>", self.language
+                    ),
                 },
             ]
+            self.logger.debug(
+                f"system_prompt: {self.prompt_dict['system_role'].replace('<language>', self.language)}"
+            )
             bot_history = model_param_dict["history"]
 
             data = {"role": "user", "content": self.prompt}
@@ -271,14 +302,24 @@ class GPTModelCall:
                 self.logger.debug(f"debug prompt:-\n\n{current_message}")
             self.current_message = current_message
 
-            response = openai.ChatCompletion.create(
-                engine=model_param_dict["engine"],
-                messages=current_message,
-                temperature=model_param_dict["temperature"],
-                max_tokens=model_param_dict["max_tokens"],
-                n=model_param_dict["n"],
-                stop=model_param_dict["stop"],
-            )
+            if self.connection_param_dict["api_type"] == "azure":
+                response = openai.ChatCompletion.create(
+                    engine=model_param_dict["engine"],
+                    messages=current_message,
+                    temperature=model_param_dict["temperature"],
+                    max_tokens=model_param_dict["max_tokens"],
+                    n=model_param_dict["n"],
+                    stop=model_param_dict["stop"],
+                )
+            else:
+                response = openai.ChatCompletion.create(
+                    model=model_param_dict["engine"],
+                    messages=current_message,
+                    temperature=model_param_dict["temperature"],
+                    max_tokens=model_param_dict["max_tokens"],
+                    n=model_param_dict["n"],
+                    stop=model_param_dict["stop"],
+                )
 
             output = response["choices"][0]["message"]["content"]
 

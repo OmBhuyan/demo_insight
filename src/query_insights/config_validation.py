@@ -2,7 +2,8 @@
 import logging
 import posixpath as pp
 
-from .utils import fs_connection, get_fs_and_abs_path, load_config
+from .pre_processing import DBConnection
+from .utils import fs_connection, get_fs_and_abs_path, get_table_names, load_config
 
 MYLOGGERNAME = "QueryInsights"
 
@@ -12,18 +13,16 @@ class DataConfigValidator:
 
     Parameters
     ----------
-    config_file_path : str
-        Path to load data configuration.
-    fs_key : str, optional
-        Account key for connecting to the File storage. If left as blank and platform specified in the data_config (data_config.cloud_storage.platform) is not blank, it will look for the path in the data_config and read the key from there, by default None
+    config : dict
+        It should contain the paths to the input data, database, output folder, and data dictionaries.
 
     Raises:
         ValueError: If any of the validations fail with an invalid value.
         FileNotFoundError: If any of the file paths specified in the configuration are not found.
     """
 
-    def __init__(self, config_file_path, fs_key: str = None):
-        self.config = load_config(config_file_path)
+    def __init__(self, config, fs_key: str = None):
+        self.config = config
         self.fs_key = fs_key
         self.logger = logging.getLogger(MYLOGGERNAME)
 
@@ -143,6 +142,35 @@ class DataConfigValidator:
 
         return True
 
+    def validate_input_file_configs(self) -> bool:
+        """Validates if json config is present in data dictionary for each table in database.
+        Will exclude tables defined in `exclude_table_names` param
+
+        Returns:
+            bool: True if json config is present for all tables
+        """
+
+        database_connection = DBConnection(
+            data_config=self.config,
+            fs=self._fs,
+        )
+        conn = database_connection.connection_db()
+
+        table_names = get_table_names(conn)
+
+        data_dictionary_path = self.config["path"]["data_dictionary_path"]
+        tables_to_exclude = self.config["path"]["exclude_table_names"]
+
+        tables_to_check = list(set(table_names) - set(tables_to_exclude))
+
+        for table in tables_to_check:
+            file_config_path = pp.join(data_dictionary_path, f"{table}.json")
+            if not self._fs.exists(file_config_path):
+                self.logger.warning(
+                    f"Data dictionary for table {table} is not found. Empty data dictionary will be used for this table."
+                )
+        return True
+
     def validate_db_params(self):
         """Validates the database parameters.
 
@@ -232,7 +260,8 @@ class DataConfigValidator:
             self.validate_cloud_storage_params()
             self.load_fs_connection()
             self.validate_path()
-            self.validate_input_file_names()
+            # self.validate_input_file_names()
+            self.validate_input_file_configs()
             self.validate_db_params()
             return True
         except (ValueError, FileNotFoundError) as e:
@@ -247,15 +276,16 @@ class UserConfigValidator:
 
     Parameters
     ----------
-    config_file_path : str
-        Path to load user configuration.
+    config : dict
+        It should contain the parameters used to interact with the OpenAI GPT-4 API to generate insights from data.
+        It also includes the user interface, API call, why question threshold, table rows limit when token limit exceeds.
 
     Raises:
         ValueError: If any of the validations fail with an invalid value.
     """
 
-    def __init__(self, config_file_path):
-        self.config = load_config(config_file_path)
+    def __init__(self, config):
+        self.config = config
         self.logger = logging.getLogger(MYLOGGERNAME)
 
     def validate_ui(self):
@@ -276,12 +306,8 @@ class UserConfigValidator:
 
     def validate_connection_params(self):
         """Validates the connection parameters."""
-        platform = self.config["connection_params"]["platform"]
-        if platform is None or platform not in ["azure", "opennai"]:
-            raise ValueError(f"Invalid platform: {platform}")
-
         api_type = self.config["connection_params"]["api_type"]
-        if api_type is None or api_type not in ["azure", "opennai"]:
+        if api_type is None or api_type not in ["azure", "openai"]:
             raise ValueError(f"Invalid api_type: {api_type}")
 
         api_base = self.config["connection_params"]["api_base"]
@@ -347,15 +373,15 @@ class ModelConfigValidator:
 
     Parameters
     ----------
-    config_file_path : str
-        Path to load model configuration.
+    config : dict
+        It should contain the model_params(like engine, temperature, max_tokens...), system_role, static prompt and guidelines to follow for all the tracks
 
     Raises:
         ValueError: If any of the validations fail with an invalid value.
     """
 
-    def __init__(self, config_file_path):
-        self.config = load_config(config_file_path)
+    def __init__(self, config):
+        self.config = config
         self.logger = logging.getLogger(MYLOGGERNAME)
         self.tracks = list(self.config.keys())[:-1]
 

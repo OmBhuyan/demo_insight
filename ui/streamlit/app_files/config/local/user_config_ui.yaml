@@ -47,7 +47,6 @@ skip_list:
   ]
 
 connection_params:
-  platform: "azure" #azure/opennai
   api_type: "azure"
   api_base: "https://gpt4query.openai.azure.com/" # "https://chatgptexp.openai.azure.com/" (or) "https://gpt4query.openai.azure.com/"
   api_version: "2023-03-15-preview" # "2022-12-01" / "2023-03-15-preview"

@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import posixpath as pp
+import timeit
 import traceback
 from ast import literal_eval
 from typing import Union
@@ -47,6 +48,8 @@ class GenerateInsights:
         Track 1 data as a dataframe.
     skip_model : bool
         condition whether to skip the api call.
+    language : str, optional
+        Language to answer the question in, for example "english", "spanish", "german", by default "english"
     additional_context : str, optional
         sentence which provides additional context to the original question, by default None
     fs : fsspec.filesystem, optional
@@ -64,6 +67,7 @@ class GenerateInsights:
         table: pd.DataFrame,
         output_path: str,
         sql_results_path: str,
+        language: str = "english",
         additional_context: str = None,
         skip_model: bool = False,
         fs=None,
@@ -78,6 +82,13 @@ class GenerateInsights:
         self.table = table
         self.additional_context = additional_context
         self.output_path = output_path
+
+        # If language is None or empty string, default to "english" language
+        if language is None or not bool(language.strip()):
+            language = "english"
+        language = language.lower().title()
+
+        self.language = language
 
         self.connection_param_dict = user_config.connection_params
         self.logger = logging.getLogger(MYLOGGERNAME)
@@ -196,6 +207,7 @@ class GenerateInsights:
             question=self.question,
             additional_context=self.additional_context,
             connection_param_dict=self.connection_param_dict,
+            language=self.language,
             dictionary=self.dictionary,
             business_overview=self.business_overview,
         )
@@ -249,6 +261,7 @@ class GenerateInsights:
             question=all_questions,
             additional_context=self.additional_context,
             connection_param_dict=self.connection_param_dict,
+            language=self.language,
             dictionary=self.dictionary,
             business_overview=self.business_overview,
         )
@@ -330,15 +343,26 @@ class GenerateInsights:
         save_folder : str
             Path where all intermediate input and outputs will be saved.
         """
-        if (self.skip_model) and self._fs.exists(pp.join(save_folder, "track3_responses.txt")):
-            self.logger.info("Retreiving track 3b code result from Knowledge Base.")
-            with self._fs.open(pp.join(save_folder, "track3_responses.txt"), "r") as f:
-                kb_code_result = f.read()
-            kb_code_result = extract_code(string_input=kb_code_result, start=["Track 3b code result:"], end="\n" + "-" * 100 + "\n", extract="first")
-            if kb_code_result is not None:
-                self.code_result = kb_code_result
+        if self.skip_model:
+            if self._fs.exists(pp.join(save_folder, "track3_responses.txt")):
+                self.logger.info("Retreiving track 3b code result from Knowledge Base.")
+                with self._fs.open(pp.join(save_folder, "track3_responses.txt"), "r") as f:
+                    kb_code_result = f.read()
+                kb_code_result = extract_code(
+                    string_input=kb_code_result,
+                    start=["Track 3b code result:"],
+                    end="\n" + "-" * 100 + "\n",
+                    extract="first",
+                )
+                if kb_code_result is not None:
+                    self.code_result = kb_code_result
+                else:
+                    self.code_result = ""
             else:
-                self.code_result = ""
+                self.logger.error(
+                    f"Retrieval from KB failed because {pp.join(save_folder, 'track3_responses.txt')} not found"
+                )
+                raise ValueError
         if self.code_result.strip() != "":
             self.logger.info(
                 "Track 3b result was not blank, hence it's output will be used to summarize."
@@ -352,6 +376,7 @@ class GenerateInsights:
                 question=self.question,
                 additional_context=self.additional_context,
                 connection_param_dict=self.connection_param_dict,
+                language=self.language,
                 suggestion=self.code_result,
                 dictionary=self.dictionary,
                 business_overview=self.business_overview,
@@ -446,6 +471,7 @@ class GenerateInsights:
                     question=None,
                     additional_context=None,
                     connection_param_dict=self.connection_param_dict,
+                    language=self.language,
                     dictionary=self.dictionary,
                     business_overview=self.business_overview,
                     table=table_string,
@@ -560,37 +586,65 @@ class GenerateInsights:
                     self.logger.error(
                         f"Error in retreiving the existing results. API call will be triggered. Error description: {e}"
                     )
-                    self.logger.error(
-                        traceback.format_exc()
-                    )
+                    self.logger.error(traceback.format_exc())
 
                     self.logger.info("Track 3a started.")
+                    start_time_track_3a = timeit.default_timer()
                     self._table_to_insight_questions(self.output_path)
+                    end_time_track_3a = timeit.default_timer()
+                    self.logger.info(
+                        f"Time taken for Track 3a: {round(end_time_track_3a - start_time_track_3a, 2)} seconds."
+                    )
                     self.logger.info("Track 3a completed.")
                     # time.sleep(5)  # Sleep for 5s to prevent server overloaded requests error.
                     # run Track 3b
                     self.logger.info("Track 3b started.")
+                    start_time_track_3b = timeit.default_timer()
                     self._insight_questions_to_code(self.output_path)
+                    end_time_track_3b = timeit.default_timer()
+                    self.logger.info(
+                        f"Time taken for Track 3b: {round(end_time_track_3b - start_time_track_3b, 2)} seconds."
+                    )
                     self.logger.info("Track 3b completed.")
                     # time.sleep(5)  # Sleep for 5s to prevent server overloaded requests error.
                     # run Track 3c
                     self.logger.info("Track 3c started.")
+                    start_time_track_3c = timeit.default_timer()
                     self._get_summary(self.output_path)
+                    end_time_track_3c = timeit.default_timer()
+                    self.logger.info(
+                        f"Time taken for Track 3c: {round(end_time_track_3c - start_time_track_3c, 2)} seconds."
+                    )
                     self.logger.info("Track 3c completed.")
 
             else:
                 self.logger.info("Track 3a started.")
+                start_time_track_3a = timeit.default_timer()
                 self._table_to_insight_questions(self.output_path)
+                end_time_track_3a = timeit.default_timer()
+                self.logger.info(
+                    f"Time taken for Track 3a: {round(end_time_track_3a - start_time_track_3a, 2)} seconds."
+                )
                 self.logger.info("Track 3a completed.")
                 # time.sleep(5)  # Sleep for 5s to prevent server overloaded requests error.
                 # run Track 3b
                 self.logger.info("Track 3b started.")
+                start_time_track_3b = timeit.default_timer()
                 self._insight_questions_to_code(self.output_path)
+                end_time_track_3b = timeit.default_timer()
+                self.logger.info(
+                    f"Time taken for Track 3b: {round(end_time_track_3b - start_time_track_3b, 2)} seconds."
+                )
                 self.logger.info("Track 3b completed.")
                 # time.sleep(5)  # Sleep for 5s to prevent server overloaded requests error.
                 # run Track 3c
                 self.logger.info("Track 3c started.")
+                start_time_track_3c = timeit.default_timer()
                 self._get_summary(self.output_path)
+                end_time_track_3c = timeit.default_timer()
+                self.logger.info(
+                    f"Time taken for Track 3c: {round(end_time_track_3c - start_time_track_3c, 2)} seconds."
+                )
                 self.logger.info("Track 3c completed.")
 
         # current_timestamp = datetime.datetime.now().strftime(r"%Y%m%d%H%M%S")

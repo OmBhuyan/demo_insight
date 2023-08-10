@@ -5,6 +5,7 @@ import posixpath as pp
 import subprocess
 import sys
 import traceback
+import timeit
 
 import fsspec
 import plotly
@@ -56,6 +57,8 @@ class GenerateCharts:
         condition to indicate if the user needs multiple charts
     fs : fsspec.filesystem, optional
         Filesystem of the url, None will default to local file system, by default ``None``
+    language : str
+        Language to answer the question in, for example "english", "spanish", "german", by default "english"
     """
 
     def __init__(
@@ -73,6 +76,7 @@ class GenerateCharts:
         sql_results_path: str,
         multiple_charts: bool,
         fs=None,
+        language: str = "english",
     ):
         """_summary_"""
         self.user_config = user_config
@@ -103,6 +107,12 @@ class GenerateCharts:
         max_retries_2a = model_config.query_to_chart_type.model_params.max_tries
         max_retries_2b = model_config.query_to_chart_code.model_params.max_tries
 
+        # If language is None or empty string, default to "english" language
+        if language is None or not bool(language.strip()):
+            language = "english"
+        language = language.lower().title()
+
+        self.language = language
         self.logger = logging.getLogger(MYLOGGERNAME)
 
         # Normal way of using decorator as we are getting trouble passing arguments
@@ -130,6 +140,7 @@ class GenerateCharts:
             question=self.question,
             additional_context=self.additional_context,
             connection_param_dict=self.connection_param_dict,
+            language=self.language,
             dictionary=self.data_dictionary,
             business_overview=self.business_overview,
         )
@@ -159,6 +170,7 @@ class GenerateCharts:
             question=self.question,
             additional_context=self.chart_type_output,
             connection_param_dict=self.connection_param_dict,
+            language=self.language,
             dictionary=self.data_dictionary,
             business_overview=self.business_overview,
         )
@@ -411,13 +423,19 @@ class GenerateCharts:
         """
         try:
             self.logger.info("Track 2a started.")
+            start_time_track_2a = timeit.default_timer()
             # Getting the chart type suggestion.
             self._charttype_apicall()
             # Saving the chart type results.
             self._post_processing(track="Track2a")
+            end_time_track_2a = timeit.default_timer()
+            self.logger.info(
+                f"Time taken for Track 2a(chart type suggestion): {round(end_time_track_2a - start_time_track_2a, 2)} seconds."
+            )
             self.logger.info("Track 2a completed")
 
             self.logger.info("Track 2b started.")
+            start_time_track_2b = timeit.default_timer()
             chart_object = None
             try:
                 self.logger.info("Trying an iteration with the user question.")
@@ -430,6 +448,10 @@ class GenerateCharts:
                 self.additional_context = None
                 chart_object = self._get_chart_object()
 
+            end_time_track_2b = timeit.default_timer()
+            self.logger.info(
+                f"Time taken for Track 2b(chart code generation): {round(end_time_track_2b - start_time_track_2b, 2)} seconds."
+            )
             self.logger.info("Track 2b completed.")
         except Exception as e:
             error_msg = f"""

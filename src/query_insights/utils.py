@@ -14,7 +14,7 @@ import time
 import traceback
 from contextlib import redirect_stderr, redirect_stdout, suppress
 from functools import partial
-from typing import Callable, Tuple, Union
+from typing import Callable, List, Tuple, Union
 
 import fsspec
 import nltk
@@ -541,6 +541,54 @@ def load_yml(path, *, fs=None, **kwargs):
         return yaml.safe_load(fp, **kwargs)
 
 
+def config_init(user_config_path, data_config_path, model_config_path, debug_config_path):
+    """
+    Initialize the configs.
+
+    Parameters
+    ----------
+    user_config_path : str
+        The path to the user config file.
+    data_config_path : str
+        The path to the data config file.
+    model_config_path : str
+        The path to the model config file.
+    debug_config_path : str
+        The path to the debug config file.
+
+    Returns
+    -------
+    dict
+        Dotified dictionary of user_config, data_config, model_config, debug_config.
+
+    Raises
+    ------
+    ValueError
+        If any of the config paths are None.
+    """
+    if user_config_path is None:
+        raise ValueError("user_config path is a mandatory argument.")
+    # load user config
+    user_config = load_config(cfg_file=user_config_path)
+
+    if data_config_path is None:
+        raise ValueError("data_config path is a mandatory argument.")
+    # load data config
+    data_config = load_config(cfg_file=data_config_path)
+
+    if model_config_path is None:
+        raise ValueError("model_config path is a mandatory argument.")
+    # load model config
+    model_config = load_config(cfg_file=model_config_path)
+
+    if debug_config_path is None:
+        raise ValueError("debug_config_path is a mandatory argument.")
+    # load debug config
+    debug_config = load_config(cfg_file=debug_config_path)
+
+    return user_config, data_config, model_config, debug_config
+
+
 def load_config(cfg_file, fs=None):
     """Create the Context from a config file location path.
 
@@ -585,7 +633,6 @@ def load_config(cfg_file, fs=None):
             cfg,
             partial(_repl_fn, getter=partial(_dotted_access_getter, dct=cfg)),
         )
-        cfg["config_file"] = pp.abspath(cfg_file)
 
         return DotifyDict(cfg)
     else:
@@ -1203,6 +1250,92 @@ def multiple_json_to_jsonl(json_folder_path: str, jsonl_file_path: str = None, f
     print("jsonl saved at ", jsonl_file_path)
 
     return
+
+
+def get_table_names(conn) -> List[str]:
+    """
+    Get table names in sql database
+
+    Parameters
+    ----------
+    conn : sqlite3.Connection
+        connection to the database
+
+    Returns
+    -------
+    List[str]:
+        List of table names present in sql database
+    """
+    cursor = conn.cursor()
+    query = """SELECT name FROM sqlite_schema WHERE type='table';"""
+    cursor.execute(query)
+
+    table_names = cursor.fetchall()
+    table_names = [table[0] for table in table_names]
+    return table_names
+
+
+def get_dummy_data_dictionary(conn, table_name: str) -> dict:
+    """
+    Get dummy data dictionary for a given table
+
+    Parameters
+    ----------
+    conn : sqlite3.Connection
+        Connection to the database
+    table_name : str
+        Table name for the data dictionary
+
+    Returns
+    -------
+    dict:
+        Dummy data dictionary containing table name and column names.
+        For example
+        {
+            "table_name": "table_name",
+            "columns": [
+                {
+                    "name":"column1",
+                    "description":"",
+                },
+                {
+                    "name":"column2",
+                    "description":"",
+                },
+            ]
+        }
+        In case table name is not present in the database, an empty dictionary will be returned as follows
+        {
+            "table_name" : "table_name",
+            "columns": [
+                {
+                    "name": "",
+                    "description": "",
+                }
+            ],
+        }
+
+    """
+    cursor = conn.cursor()
+    query = f"""SELECT * from {table_name}"""
+    try:
+        cursor.execute(query)
+        column_names = list(map(lambda x: x[0], cursor.description))
+
+        return {
+            "table_name": table_name,
+            "columns": [{"name": column, "description": ""} for column in column_names],
+        }
+    except sqlite3.OperationalError:
+        return {
+            "table_name": table_name,
+            "columns": [
+                {
+                    "name": "",
+                    "description": "",
+                }
+            ],
+        }
 
 
 def format_dataframe(df):

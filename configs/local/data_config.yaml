@@ -3,13 +3,9 @@ path:
   parent: ../..
   # Path where the input data, db files, output folder (will be created in the code) are saved
   input_data_path: ${path.parent}/data/db
-  # add an enty for each table. in case of multiple tables, add multiple entries
-  # Example, for `stream_data: "masked_stream_data_21mar.csv"`, SQL table name will be stream_data. Also "stream_data.json" must be present in data_dictionary_path
-  # in case of multiple tables, code read all jsons from the data_dictionary_pathm append them and feed it to the model
-  input_file_names:
-    invoice_data: invoice_data_masked.csv
-    material_desc: material_descriptions_masked.csv
-    product_data: product_data_masked.csv
+
+  # Table names that need to be excluded
+  exclude_table_names: []
 
   # Path where the data dictionaries are available (one json file per one table mentioned in path.input_file_name section of this config)
   data_dictionary_path: ${path.parent}/data/data_dictionary
@@ -39,7 +35,6 @@ db_params:
   chunk_size: 500000 #500000
 
 cloud_storage:
-  # TODO: fsspec Add some config validations for this
   # Add connection parameters for DBFS. Leave platform blank for normal filestorage (Linux, Windows) and other entries will be ignored
   # Platform of the cloud. Can be blank (for local FS) or "azure"
   platform:

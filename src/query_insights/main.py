@@ -1,8 +1,10 @@
 import datetime
+import json
 import logging
 import posixpath as pp
 import random
 import re
+import timeit
 import traceback
 from typing import Tuple
 
@@ -10,6 +12,7 @@ import numpy as np
 import openai
 import pandas as pd
 import spacy
+import yaml
 from sentence_transformers import SentenceTransformer, util
 from sql_metadata import Parser
 
@@ -20,7 +23,7 @@ from .config_validation import (
     UserConfigValidator,
 )
 from .insights_generator import GenerateInsights
-from .pre_processing import DatabaseSetup, HybridQuestionClassifier
+from .pre_processing import DBConnection, HybridQuestionClassifier
 from .text_to_query_generator import BotResponse, TextToQuery
 from .utils import (
     SensitiveContentError,
@@ -31,9 +34,10 @@ from .utils import (
     download_spacy_nltk_data,
     format_dataframe,
     fs_connection,
+    get_dummy_data_dictionary,
     get_fs_and_abs_path,
+    get_table_names,
     get_word_chunks,
-    load_config,
     load_data_dictionary,
     load_key_to_env,
     log_uncaught_errors,
@@ -49,12 +53,15 @@ class QueryInsights:
 
     Parameters
     ----------
-    user_config_path : str
-        path for input user_config dictionary for storing and accessing user-specific configurations.
-    data_config_path : str
-        path for input data_config dictionary contains the paths to the data.
-    model_config_path : str
-        path for input model_config dictionary for storing and accessing model-related configurations.
+    user_config : dict
+        It contains the parameters used to interact with the OpenAI GPT-4 API to generate insights from data.
+        It includes the user interface, API call, why question threshold, table rows limit when token limit exceeds.
+    data_config : dict
+        It contains the paths to the input data, database, output folder, and data dictionaries.
+    model_config : dict
+        It contains the model_params(like engine, temperature, max_tokens...), system_role, static prompt and guidelines to follow for all the tracks
+    debug_config : dict
+        It handles errors such as invalid columns, syntax errors, and ALTER or DROP TABLE queries.
     api_key : str, optional
         API key string. If left as blank, it will look for the path in the data_config and read the key from there, by default None
     fs_key : str, optional
@@ -75,10 +82,10 @@ class QueryInsights:
 
     def __init__(
         self,
-        user_config_path: str,
-        data_config_path: str,
-        model_config_path: str,
-        debug_config_path: str,
+        user_config: dict,
+        data_config: dict,
+        model_config: dict,
+        debug_config: dict,
         api_key: str = None,
         fs_key: str = None,
         logging_level: str = "INFO",
@@ -86,33 +93,17 @@ class QueryInsights:
         verbose: bool = True,
     ) -> None:
         """Class constructor"""
-        if user_config_path is None:
-            raise ValueError("user_config path is a mandatory argument.")
-        # load user config
-        self.user_config = load_config(cfg_file=user_config_path)
-        self.user_config_path = user_config_path
 
-        if data_config_path is None:
-            raise ValueError("data_config path is a mandatory argument.")
-        # load user config
-        self.data_config = load_config(cfg_file=data_config_path)
-        self.data_config_path = data_config_path
-
-        if model_config_path is None:
-            raise ValueError("model_config path is a mandatory argument.")
-        # load user config
-        self.model_config = load_config(cfg_file=model_config_path)
-        self.model_config_path = model_config_path
-
-        if debug_config_path is None:
-            raise ValueError("debug_config_path is a mandatory argument.")
-        # load user config
-        self.debug_config = load_config(cfg_file=debug_config_path)
-        self.debug_config_path = debug_config_path
+        self.user_config = user_config
+        self.data_config = data_config
+        self.model_config = model_config
+        self.debug_config = debug_config
 
         prefix_url, storage_options = fs_connection(
             fs_connection_dict=self.data_config.cloud_storage, fs_key=fs_key
         )
+
+        self.model = SentenceTransformer(self.user_config.similarity_check.model)
 
         # BLOB_ACCOUNT_KEY variable is set here
         self._fs, _ = get_fs_and_abs_path(path=prefix_url, storage_options=storage_options)
@@ -139,46 +130,70 @@ class QueryInsights:
         self.text_to_query_path = None
         self.query_to_chart_path = None
         self.table_to_insights_path = None
+        self.why_qn_flag = False
+        self.additional_context = None
+        self.business_overview = None
+
+        # This flag is used to check whether the track 1 and track 2 ran or not. By default set to False.
+        # This flag is used to decide whether the response json needs to be saved or not in track3.
+        self.query_to_sql_run = False
+        self.table_to_chart_run = False
+
+        self._folder_creation_for_each_question()
 
         # Load database
-        database_connection = DatabaseSetup(
-            user_config=self.user_config,
+        database_connection = DBConnection(
             data_config=self.data_config,
-            model_config=self.model_config,
             fs=self._fs,
         )
-        self.conn = database_connection.connection_db()
 
-        tables = self.data_config.path.input_file_names
+        start_time_to_load_db = timeit.default_timer()
+        self.conn = database_connection.connection_db()
+        end_time_to_load_db = timeit.default_timer()
+
+        self.logger.info(
+            f"Time taken to load sqlite database: {round(end_time_to_load_db - start_time_to_load_db, 2)} seconds."
+        )
+
+        table_names = get_table_names(self.conn)
+        tables_to_exclude = self.data_config.path.exclude_table_names
+
+        table_names = list(set(table_names) - set(tables_to_exclude))
 
         # Initialize data dictionary
         self.data_dictionary = {}
-        for table in list(tables.keys()):
-            self.data_dictionary[table] = load_data_dictionary(
-                pp.join(self.data_config.path.data_dictionary_path, f"{table}.json"),
-                fs=self._fs,
-            )
+        for table_name in table_names:
+            if not self._fs.exists(
+                pp.join(self.data_config.path.data_dictionary_path, f"{table_name}.json")
+            ):
+                self.data_dictionary[table_name] = get_dummy_data_dictionary(self.conn, table_name)
+                # TODO: Add to logger that we are taking column name in case data dictionary doesn't exist
+            else:
+                self.data_dictionary[table_name] = load_data_dictionary(
+                    pp.join(self.data_config.path.data_dictionary_path, f"{table_name}.json"),
+                    fs=self._fs,
+                )
 
         # Response variable initialized for creation of response.json
         self.response_json = {}
 
         validators = [
-            (DataConfigValidator, [data_config_path, fs_key]),
-            (UserConfigValidator, [user_config_path]),
-            (ModelConfigValidator, [model_config_path]),
+            (DataConfigValidator, [data_config, fs_key]),
+            (UserConfigValidator, [user_config]),
+            (ModelConfigValidator, [model_config]),
         ]
 
         for validator_cls, args in validators:
-            config_path = args[0]
+            config = args[0]
             if validator_cls == DataConfigValidator:
                 fs_key = args[1]
-                validator = validator_cls(config_file_path=config_path, fs_key=fs_key)
+                validator = validator_cls(config=config, fs_key=fs_key)
             else:
-                validator = validator_cls(config_file_path=config_path)
+                validator = validator_cls(config=config)
             result = validator.validate_config()
             if not result:
                 raise ValueError(
-                    f"Config validation failed for {validator} from {config_path}. Result: {result}"
+                    f"Config validation failed for {validator} from {config}. Result: {result}"
                 )
 
         # Download NLTK Data for preprocessing for questions
@@ -196,6 +211,14 @@ class QueryInsights:
             "unit of measure for the quantity",
             "float",
         ]
+
+        # Load question classification model if threshold is specified in config
+        self.question_threshold = self.user_config.why_question_threshold
+        if bool(self.question_threshold):
+            self.classifier = HybridQuestionClassifier(embedding_model="bert")
+        else:
+            self.classifier = None
+
         return
 
     def check_similarity_and_get_question_index(
@@ -206,8 +229,8 @@ class QueryInsights:
         And it gets the index for the new question based on the existing question base.
 
         Two scenarios can happen in this function after identifying similar questions if available -
-        1. If the similarity condition is False or KB has no questions, it creates a new index with the prefix and the timestamp.
-            <Prefix>_<Timestamp>_1
+        1. If the similarity condition is False or KB has no questions, it goes with the question index declared in the "_folder_creation_for_each_question" function.
+            The created index will be in the format <Prefix>_<Timestamp>_1.
         2. If the condition is True, then it takes the maximum value from the dir list and increments the secondary index.
             conditon = True
             dir_list = ['Q_20230622142919300_1', 'Q_20230622142919300_2']
@@ -229,15 +252,12 @@ class QueryInsights:
         str
             Prefix + "_" Primary index + "_" + Secondary Index
         """
-        prefix = "Q"
-        now = datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
 
         # Check if the KB has no existing questions.
         if questions_dict is None:
-            new_folder_name = prefix + f"_{now}_1"
+            new_folder_name = self.question_index
         else:
             # Looking for similar question if any in the KB using sentence embeddings and cosine similarity.
-            model = SentenceTransformer(self.user_config.similarity_check.model)
             # Get the list of questions and indexes from the dictionary.
             folders_list = [i for i in questions_dict.keys()]
             questions_list = [v for v in questions_dict.values()]
@@ -245,8 +265,8 @@ class QueryInsights:
             status_list = [s for s in status_dict.values()]
 
             # Encode the list of sentences and the standalone sentence
-            encoded_list = model.encode(questions_list, convert_to_tensor=True)
-            encoded_new_qs = model.encode(question, convert_to_tensor=True)
+            encoded_list = self.model.encode(questions_list, convert_to_tensor=True)
+            encoded_new_qs = self.model.encode(question, convert_to_tensor=True)
 
             # Calculate cosine similarity and the maximum similarity
             cos_similarities = util.pytorch_cos_sim(encoded_new_qs, encoded_list).tolist()[0]
@@ -278,7 +298,7 @@ class QueryInsights:
                     folder_name.split("_")[0] + "_" + folder_name.split("_")[1] + "_{}".format(n)
                 )
             else:
-                new_folder_name = prefix + f"_{now}_1"
+                new_folder_name = self.question_index
 
         # adding random integer after timestamp to avoid issues with multiple users
         rand = random.randint(0, 10000)
@@ -343,21 +363,16 @@ class QueryInsights:
                 multiple_charts_indicator, "", self.question, flags=re.IGNORECASE
             )
 
-        # Check if given query is why question.
-
-        classifier = HybridQuestionClassifier(embedding_model="bert")
-        threshold = self.user_config.why_question_threshold
-
         # Check if its why qn or not.
-        if not bool(threshold):
-            # why_qn_flag will be False when the threshold is: None, 0, "", False.
-            # `if (threshold is None) or (threshold.strip() == ""):` could be used but it would've failed when threshold is float
+        if not bool(self.question_threshold):
+            # why_qn_flag will be False when the self.question_threshold is: None, 0, "", False.
+            # `if (self.question_threshold is None) or (self.question_threshold.strip() == ""):` could be used but it would've failed when self.question_threshold is float
             self.why_qn_flag = False
         else:
-            threshold = float(threshold)
+            self.question_threshold = float(self.question_threshold)
             # TODO: Handle edge cases where user question itself contains ';'
-            reason_based_questions = classifier.find_reason_based_questions(
-                [question.split(";")[-1].strip()], threshold
+            reason_based_questions = self.classifier.find_reason_based_questions(
+                [question.split(";")[-1].strip()], self.question_threshold
             )
             for qn, _ in reason_based_questions:
                 if qn == question:
@@ -457,7 +472,86 @@ class QueryInsights:
         elif not self.user_config.skip_api_call:
             self.existing_question = False
 
+        self.logger.info(first_msg)
+
+        if self.additional_context is None:
+            file_content = f"Question: {self.question}"
+        else:
+            file_content = (
+                f"Question: {self.question}\nAdditional context: {self.additional_context}"
+            )
+        with self._fs.open(pp.join(self.output_path, "question.txt"), "w") as file:
+            file.write(file_content)
+
+    def _individual_track_folder_creation(self, track: str = None):
+        """Create individual subfolders for each track to store output files.
+
+        Parameters
+        ----------
+        track : str, optional
+            The name of the track for which the subfolder needs to be created.
+            Valid values are '01_text_to_query', '02_query_to_chart', and '03_table_to_insights'.
+
+        Returns
+        -------
+        None
+            This function creates subfolders for each track and stores the paths in instance variables
+            (text_to_query_path, query_to_chart_path, and table_to_insights_path).
+
+        Raises
+        ------
+        ValueError
+            If an invalid track value is provided.
+        """
         try:
+            # Create subfolder
+            self.text_to_query_path = pp.join(self.output_path, "01_text_to_query")
+            self.query_to_chart_path = pp.join(self.output_path, "02_query_to_chart")
+            self.table_to_insights_path = pp.join(self.output_path, "03_table_to_insights")
+
+            if self.why_qn_flag:
+                folders_to_create = self.table_to_insights_path
+            else:
+                if track == "01_text_to_query":
+                    folders_to_create = self.text_to_query_path
+                elif track == "02_query_to_chart":
+                    folders_to_create = self.query_to_chart_path
+                elif track == "03_table_to_insights":
+                    folders_to_create = self.table_to_insights_path
+                else:
+                    raise ValueError(
+                        "Invalid track provided. Valid values are '01_text_to_query', '02_query_to_chart', and '03_table_to_insights'."
+                    )
+
+            self.logger.debug(f"Folder - {folders_to_create} is created.")
+            self._fs.makedirs(folders_to_create, exist_ok=True)
+        except ValueError as ve:
+            self.logger.error(f"Caught ValueError: {ve}")
+
+    def _folder_creation_for_each_question(self):
+        """Create folder for each question to store output files.
+
+        This function sets up the folder structure to save logs and outputs for each question.
+        it creates a new index with the prefix and the timestamp. <Prefix>_<Timestamp>_1
+
+        Returns
+        -------
+        None
+        """
+
+        try:
+            # create the output folder structure for saving logs.
+            self.exp_folder = pp.join(
+                self.data_config.path.output_path, self.data_config.path.exp_name
+            )
+            self._fs.makedirs(
+                self.exp_folder, exist_ok=True
+            )  # create folder if not already present.
+
+            prefix = "Q"
+            now = datetime.datetime.now().strftime("%Y%m%d%H%M%S%f")
+            self.question_index = prefix + f"_{now}_1"
+
             # print(self.question_index)
             self.output_path = pp.join(
                 self.data_config.path.output_path,
@@ -490,24 +584,8 @@ class QueryInsights:
             self.logger.info(
                 f"The results will be saved in this output folder: {self.question_index} and output path: {self.output_path}"
             )
-            # Create subfolder
-            self.text_to_query_path = pp.join(self.output_path, "01_text_to_query")
-            self.query_to_chart_path = pp.join(self.output_path, "02_query_to_chart")
-            self.table_to_insights_path = pp.join(self.output_path, "03_table_to_insights")
-
-            if self.why_qn_flag:
-                folders_to_create = [self.table_to_insights_path]
-            else:
-                folders_to_create = [
-                    self.text_to_query_path,
-                    self.query_to_chart_path,
-                    self.table_to_insights_path,
-                ]
-
-            for folder in folders_to_create:
-                self.logger.debug(f"Folder - {folder} is created.")
-                self._fs.makedirs(folder, exist_ok=True)
-        except Exception:
+        except Exception as e:
+            self.logger.info(f"folder creation and log declaration ended with error - {e}.")
             self.output_path = pp.join(
                 self.data_config.path.output_path,
                 self.data_config.path.exp_name,
@@ -515,7 +593,6 @@ class QueryInsights:
             )
 
             # Init logger
-
             if self.log_file_path is None:
                 log_file = pp.join(self.output_path, "runtime.log")
                 create_logger(
@@ -535,71 +612,32 @@ class QueryInsights:
                 )
 
             self.logger = logging.getLogger(MYLOGGERNAME)
-
-            # Create subfolder
-            self.text_to_query_path = pp.join(self.output_path, "01_text_to_query")
-            self.query_to_chart_path = pp.join(self.output_path, "02_query_to_chart")
-            self.table_to_insights_path = pp.join(self.output_path, "03_table_to_insights")
-
+            self.logger.info(
+                f"The results will be saved in this output folder: {self.question_index} and output path: {self.output_path}"
+            )
         log_uncaught_errors(self.logger)
-
-        if self.why_qn_flag:
-            folders_to_create = [self.table_to_insights_path]
-        else:
-            folders_to_create = [
-                self.text_to_query_path,
-                self.query_to_chart_path,
-                self.table_to_insights_path,
-            ]
-
-            for folder in folders_to_create:
-                self.logger.debug(f"Folder - {folder} is created.")
-                self._fs.makedirs(folder, exist_ok=True)
-
-        self.logger.info(first_msg)
-        self.logger.info(
-            f"The results will be saved in this output folder: {self.question_index} and output path: {self.output_path}"
-        )
         self.logger.info("Saving Data config")
         self._fs.makedirs(pp.join(self.output_path, "configs"), exist_ok=True)
 
         # Save data Config file.
-        with self._fs.open(
-            pp.join(self.output_path, "configs", "data_config.yaml"), "w"
-        ) as fout, open(self.data_config_path, "r") as fin:
-            fout.write(fin.read())
+        with self._fs.open(pp.join(self.output_path, "configs", "data_config.yaml"), "w") as fout:
+            yaml.dump(json.loads(json.dumps(self.data_config)), fout, default_flow_style=False)
 
         self.logger.info("Saving model config")
+
         # Save model Config file.
-        with self._fs.open(
-            pp.join(self.output_path, "configs", "model_config.yaml"), "w"
-        ) as fout, open(self.model_config_path, "r") as fin:
-            fout.write(fin.read())
+        with self._fs.open(pp.join(self.output_path, "configs", "model_config.yaml"), "w") as fout:
+            yaml.dump(json.loads(json.dumps(self.model_config)), fout, default_flow_style=False)
 
         self.logger.info("Saving user config")
         # Save Config file.
-        with self._fs.open(
-            pp.join(self.output_path, "configs", "user_config.yaml"), "w"
-        ) as fout, open(self.user_config_path, "r") as fin:
-            fout.write(fin.read())
+        with self._fs.open(pp.join(self.output_path, "configs", "user_config.yaml"), "w") as fout:
+            yaml.dump(json.loads(json.dumps(self.user_config)), fout, default_flow_style=False)
 
         self.logger.info("Saving debug config")
         # Save Config file.
-        with self._fs.open(
-            pp.join(self.output_path, "configs", "debug_config.yaml"), "w"
-        ) as fout, open(self.debug_config_path, "r") as fin:
-            fout.write(fin.read())
-
-        if self.additional_context is None:
-            file_content = f"Question: {self.question}"
-            with self._fs.open(pp.join(self.output_path, "question.txt"), "w") as file:
-                file.write(file_content)
-        else:
-            file_content = (
-                f"Question: {self.question}\nAdditional context: {self.additional_context}"
-            )
-            with self._fs.open(pp.join(self.output_path, "question.txt"), "w") as file:
-                file.write(file_content)
+        with self._fs.open(pp.join(self.output_path, "configs", "debug_config.yaml"), "w") as fout:
+            yaml.dump(json.loads(json.dumps(self.debug_config)), fout, default_flow_style=False)
 
     def _identify_columns_for_similar_query(self) -> list:
         """
@@ -664,14 +702,13 @@ class QueryInsights:
         columns_list = data_dictionary_df["name"].tolist()
 
         # Loading the sentence transformer model and initializing a list to store identified column names.
-        model = SentenceTransformer(self.user_config.similarity_check.model)
         possible_columns_list = []
         # Encoding the column descriptions
-        encoded_list = model.encode(description_list, convert_to_tensor=True)
+        encoded_list = self.model.encode(description_list, convert_to_tensor=True)
         # Looping over the new word chunks from the user question
         for i in range(0, len(new_chunks_only)):
             # Calculating cosine similarities between the new word chunk and column descriptions
-            encoded_new_qs = model.encode(new_chunks_only[i], convert_to_tensor=True)
+            encoded_new_qs = self.model.encode(new_chunks_only[i], convert_to_tensor=True)
             cos_similarities = util.pytorch_cos_sim(encoded_new_qs, encoded_list).tolist()[0]
             # Getting the indices of the highest similarity values
             max_values = sorted(
@@ -685,8 +722,13 @@ class QueryInsights:
 
         return final_cols, similar_question, similar_response
 
-    def text_to_query(self, question: str = None, additional_context: str = None) -> dict:
+    def text_to_query(
+        self, question: str = None, additional_context: str = None, language: str = "english"
+    ) -> dict:
         """Track 1: Given a user query and dataset, generate SQL and run that SQL on the dataset to get an output dataframe for further processing.
+
+        If you want to run all the tracks, then pass the question parameter only once in the track 1. Track 2 and track 3 will automatically take from track 1.
+        If you want to run track 2 or track 3 separately without running track 1, then pass the question parameter directly while calling respective functions. Don't call track 1 with the same class object if you want to do this.
 
         Parameters
         ----------
@@ -694,6 +736,8 @@ class QueryInsights:
             Business user query, by default None
         additional_context : str, optional
             Additional context to answer the question, by default None
+        language : str, optional
+            Language to answer the question in, for example "english", "spanish", "german", by default "english"
 
         Returns
         -------
@@ -721,13 +765,23 @@ class QueryInsights:
                     "output": skip_reason,
                 }
         """
+        track1_start_time = timeit.default_timer()
+
+        # Set to True as track 1 ran
+        self.query_to_sql_run = True
+
+        # If language is None or empty string, default to "english" language
+        if language is None or not bool(str(language).strip()):
+            language = "english"
+        language = language.lower().title()
+        self.language = language
+
+        self._individual_track_folder_creation(track="01_text_to_query")
 
         self._preprocess(question=question, additional_context=additional_context)
 
-        # if business_overview exits self variable gets updated
-        self.business_overview = None
-
-        if bool(self.data_config.path.business_overview_path):
+        # We check if it is already read. If not, we read it. This is to facilitate each track running individually
+        if self.business_overview is None and bool(self.data_config.path.business_overview_path):
             if self._fs.exists(self.data_config.path.business_overview_path):
                 with self._fs.open(self.data_config.path.business_overview_path, "r") as file_:
                     self.business_overview = file_.read()
@@ -760,6 +814,7 @@ class QueryInsights:
                         column["similar"] = "Yes"
 
         self.logger.info(f"Question to the API: {self.question}")
+        self.logger.info(f"Question to be answered in {self.language} language")
         self.logger.info(f"Additional Context to the API: {self.additional_context}")
 
         if self.why_qn_flag:
@@ -781,9 +836,11 @@ class QueryInsights:
             track1_ins = TextToQuery(
                 user_config=self.user_config,
                 model_config=self.model_config,
+                data_config=self.data_config,
                 debug_config=self.debug_config,
                 question=self.question,
                 additional_context=additional_context,
+                language=self.language,
                 data_dictionary=self.data_dictionary,
                 business_overview=self.business_overview,
                 bot_history=self.bot_history,
@@ -914,7 +971,6 @@ class QueryInsights:
         question = self.question
         type_ = "insights"
 
-
         data_dict = {}
         data_dict["insight_type"] = "sql_query"
         if return_value["status"] == "success":
@@ -935,7 +991,9 @@ class QueryInsights:
         response_json["status"] = [return_value["status"]]
         response_json["type"] = type_
         response_json["data"] = [data_dict]
-        response_json["created_time"] = str(datetime.datetime.now(datetime.timezone.utc)).replace("+00:00", "Z")
+        response_json["created_time"] = str(datetime.datetime.now(datetime.timezone.utc)).replace(
+            "+00:00", "Z"
+        )
         response_json["completion_response"] = self.completion_response
         response_json["response_for_history"] = bot_response
 
@@ -943,6 +1001,12 @@ class QueryInsights:
         self.response_json["Response JSON"] = response_json
 
         # JSON is created to be used for front-end applications.
+
+        track1_end_time = timeit.default_timer()
+
+        self.logger.info(
+            f"Time taken to run track 1: {round(track1_end_time - track1_start_time, 2)} seconds."
+        )
 
         return return_value
 
@@ -996,10 +1060,14 @@ class QueryInsights:
         self,
         question: str = None,
         additional_context: str = None,
+        language: str = "english",
         track1_output_table: pd.DataFrame = None,
         track1_output_table_dict: dict = None,
     ) -> dict:
         """Track 2: Given user query, generate python code that generates chart and display to the user.
+
+        If you want to run all the tracks, then pass the question parameter only once in the track 1. Track 2 and track 3 will automatically take from track 1.
+        If you want to run track 2 or track 3 separately without running track 1, then pass the question parameter directly while calling respective functions. Don't call track 1 with the same class object if you want to do this.
 
         Parameters
         ----------
@@ -1007,6 +1075,8 @@ class QueryInsights:
             Business user query, by default None
         additional_context : str, optional
             Additional context to answer the question, by default None
+        language : str, optional
+            Language to answer the question in, for example "english", "spanish", "german", by default "english"
         track1_output_table : pd.DataFrame, optional
             Output of text_to_query function by running the SQL generated to answer the ``question``, by default None
         track1_output_table_dict : dict, optional
@@ -1038,11 +1108,50 @@ class QueryInsights:
                     "output": (error message, track 1 table),
                 }
         """
-        if question is None:
-            question = self.question
+        track2_start_time = timeit.default_timer()
+
+        # Set to True as track 2 ran
+        self.table_to_chart_run = True
+
+        self._individual_track_folder_creation(track="02_query_to_chart")
 
         if additional_context is None:
             additional_context = self.additional_context
+
+        # if question is passed to the track 1 and if we are passing the same question to track 2 then we are allowing the track to run.
+        if self.question == question:
+            question = self.question
+        # if question is passed to the track 1 and if we are passing a different question to track 2 then we are throwing an error.
+        elif self.question is not None and question is not None:
+            self.logger.error(
+                f"The user query is already passed in the track 1 : {self.question}. A new question is passed : {question} and that's a conflict. Remove the question parameter from this function call if it is same question or initalize the class again if it is a different question"
+            )
+            raise Exception(
+                f"The user query is already passed in the track 1 : {self.question}. A new question is passed : {question} and that's a conflict. Remove the question parameter from this run if it is same question or initalize the class again if it is a different question"
+            )
+        # if question is not passed as a parameter to the track 2 then we are looking for the declared question itself.
+        elif question is None:
+            question = self.question
+        else:
+            # The preprocess function is called when this track is called individually (i.e., the question parameter is not None).
+            # Here, we are checking whether the question is present in the KB or not.
+            # if question is present, then the question index gets overwritten.
+            self._preprocess(question=question, additional_context=additional_context)
+
+        # We check if it is already read. If not, we read it. This is to facilitate each track running individually
+        if self.business_overview is None and bool(self.data_config.path.business_overview_path):
+            if self._fs.exists(self.data_config.path.business_overview_path):
+                with self._fs.open(self.data_config.path.business_overview_path, "r") as file_:
+                    self.business_overview = file_.read()
+                # prompt = (
+                #     prompt + "\n\n\nFoloowing is the business overview: \n" + business_overview
+                # )
+
+        # If language is None or empty string, default to language specified in text to query
+        if language is None or not bool(str(language).strip()):
+            language = self.language
+        else:
+            language = language.lower().title()
 
         # Check if its a why Question.
         if self.why_qn_flag:
@@ -1057,6 +1166,14 @@ class QueryInsights:
         # Input data validation
         if track1_output_table is None:
             track1_output_table = self.track1_output_table
+        else:
+            # if the dataframe is received as a parameter then we are saving it in the query_to_insights folder
+            # This is needed in passing the path to the chart code
+            self.text_to_query_path = self.query_to_chart_path
+            with self._fs.open(
+                pp.join(self.query_to_chart_path, "output_table.csv"), mode="wb", newline=""
+            ) as fp:
+                track1_output_table.to_csv(fp, index=False)
 
         if track1_output_table_dict is None:
             track1_output_table_dict = self.track1_output_table_dict
@@ -1075,23 +1192,23 @@ class QueryInsights:
         # Initializing the track 1 data dict to None.
         track1_data_dict = None
         try:
-            self.logger.info("Reading the Track 1's data dictionary.")
+            self.logger.info("Reading the data dictionary.")
             # track1_data_dict = ast.literal_eval("{'columns':" + track1_output_table_dict + "}")
             # Create a new dictionary with the "columns" key and the list of dictionaries as its value
             # dict_list = _string_to_dict(track1_output_table_dict)
             dict_list = track1_output_table_dict
             if len(dict_list) == track1_output_table.shape[1]:
                 track1_data_dict = {"columns": dict_list}
-                self.logger.info(f"Track 1 data dictionary is read - {track1_data_dict}")
+                self.logger.info(f"data dictionary is read - {track1_data_dict}")
             else:
                 self.logger.info(
-                    """Some issues with data dictionary. It doesn't have all the column details of track 1 result.
+                    """An error occured while reading data dictionary. It doesn't have all the column details of track 1 result.
                     Changing that to columns list."""
                 )
                 track1_data_dict = alternate_dict
         except Exception as e:
             self.logger.info(
-                f"Some error with the Track 1's data dictionary. Changing that to columns list. Error - {e}"
+                f"Some error with the  data dictionary. Changing that to columns list. Error - {e}"
             )
             track1_data_dict = alternate_dict
 
@@ -1117,6 +1234,7 @@ class QueryInsights:
                 data_dictionary=track1_data_dict,
                 business_overview=self.business_overview,
                 output_path=self.query_to_chart_path,
+                language=language,
                 skip_model=self.skip_model,
                 sql_results_path=self.text_to_query_path,
                 multiple_charts=self.multiple_charts,
@@ -1218,6 +1336,21 @@ class QueryInsights:
             }
 
         # Creation of Response JSON for track 2
+        # Parent keys of json
+        if not self.response_json:
+            self.response_json = {
+                "Request JSON": {"question": self.question},
+                "Response JSON": {
+                    "error": "",
+                    "status": [""],
+                    "type": "insights",
+                    "data": [""],
+                    "created_time": str(datetime.datetime.now(datetime.timezone.utc)).replace(
+                        "+00:00", "Z"
+                    ),
+                },
+            }
+
         self.response_json["Response JSON"]["status"].append(return_value["status"])
 
         data_dict = {}
@@ -1252,27 +1385,39 @@ class QueryInsights:
                 data_dict["showError"] = False
         data_dict["bot_response"] = ""
 
-
         if return_value["status"] == "failure":
             self.completion_response = random.choice(self.completion_error_phrases)
 
         self.response_json["Response JSON"]["data"].append(data_dict)
         # JSON is created to be used for front-end applications.
 
+        track2_end_time = timeit.default_timer()
+
+        self.logger.info(
+            f"Time taken to run track 2: {round(track2_end_time - track2_start_time, 2)} seconds."
+        )
+
         return return_value
 
     def table_to_insights(
         self,
         question: str = None,
+        additional_context: str = None,
+        language: str = "english",
         track1_output_table: pd.DataFrame = None,
         track1_output_table_dict: dict = None,
     ) -> dict:
         """Track 3: Given user query, generate python code to derive insights on the underlying table and summarize to a business audience.
 
+        If you want to run all the tracks, then pass the question parameter only once in the track 1. Track 2 and track 3 will automatically take from track 1.
+        If you want to run track 2 or track 3 separately without running track 1, then pass the question parameter directly while calling respective functions. Don't call track 1 with the same class object if you want to do this.
+
         Parameters
         ----------
         question : str, optional
             Business user query, by default None
+        language : str, optional
+            Language to answer the question in, for example "english", "spanish", "german", by default "english"
         track1_output_table : pd.DataFrame, optional
             Output of text_to_query function by running the SQL generated to answer the ``question``, by default None
         track1_output_table_dict : dict, optional
@@ -1298,12 +1443,49 @@ class QueryInsights:
                 }
 
         """
+
+        track3_start_time = timeit.default_timer()
+
+        self._individual_track_folder_creation(track="03_table_to_insights")
+
+        # if question is passed to the track 1 and if we are passing the same question to track 3 then we are allowing the track to run.
+        if self.question == question:
+            question = self.question
+        # if question is passed to the track 1 and if we are passing a different question to track 3 then we are throwing an error.
+        elif self.question is not None and question is not None:
+            self.logger.error(
+                f"The user query is already passed in the track 1 : {self.question}. A new question is passed : {question} and that's a conflict. Remove the question parameter from this run if it is same question or initalize the class again if it is a different question"
+            )
+            raise Exception(
+                f"The user query is already passed in the track 1 : {self.question}. A new question is passed : {question} and that's a conflict. Remove the question parameter from this run if it is same question or initalize the class again if it is a different question"
+            )
+        # if question is not passed as a parameter to the track 3 then we are looking for the declared question itself.
+        elif question is None:
+            question = self.question
+        else:
+            # The preprocess function is called when this track is called individually (i.e., the question parameter is not None).
+            # Here, we are checking whether the question is present in the KB or not.
+            # if question is present, then the question index gets overwritten.
+            self._preprocess(question=question, additional_context=additional_context)
+
+        # We check if it is already read. If not, we read it. This is to facilitate each track running individually
+        if self.business_overview is None and bool(self.data_config.path.business_overview_path):
+            if self._fs.exists(self.data_config.path.business_overview_path):
+                with self._fs.open(self.data_config.path.business_overview_path, "r") as file_:
+                    self.business_overview = file_.read()
+                # prompt = (
+                #     prompt + "\n\n\nFoloowing is the business overview: \n" + business_overview
+                # )
+
         # Remove the temp directory if persists from prev run for the same qn
         if self._fs.exists(pp.join(self.table_to_insights_path, "tmp")):
             self._fs.rm(pp.join(self.table_to_insights_path, "tmp"), recursive=True)
 
-        if question is None:
-            question = self.question
+        # If language is None or empty string, default to language specified in text to query
+        if language is None or not bool(str(language).strip()):
+            language = self.language
+        else:
+            language = language.lower().title()
 
         # check if its a why question.
         if self.why_qn_flag:
@@ -1314,10 +1496,19 @@ class QueryInsights:
             track1_output_table = (
                 self.track1_output_table
             )  # TODO: Probably need to think what table to use after table selector is ready.
-        else:  # Else, we have generated track 1 output. Fetch it if its not passed directly as arguments.
+        else:
+            # Else, we have generated track 1 output. Fetch it if its not passed directly as arguments.
             # Input data validation
             if track1_output_table is None:
                 track1_output_table = self.track1_output_table
+            else:
+                # if the dataframe is received as a parameter then we are saving it in the table_to_insights folder
+                # This is needed in passing the path to the insights generator(track 3b)
+                self.text_to_query_path = self.table_to_insights_path
+                with self._fs.open(
+                    pp.join(self.table_to_insights_path, "output_table.csv"), mode="wb", newline=""
+                ) as fp:
+                    track1_output_table.to_csv(fp, index=False)
 
             if track1_output_table_dict is None:
                 track1_output_table_dict = self.track1_output_table_dict
@@ -1341,6 +1532,7 @@ class QueryInsights:
                 skip_model=self.skip_model,
                 output_path=self.table_to_insights_path,
                 sql_results_path=self.text_to_query_path,
+                language=language,
                 fs=self._fs,
             )
             insights = gi.get_insights(units_to_skip=self.units_to_skip)
@@ -1411,8 +1603,23 @@ class QueryInsights:
             self._fs.rm(pp.join(self.table_to_insights_path, "tmp"), recursive=True)
 
         # Creation of Response JSON for track 3
-        self.response_json["Response JSON"]["status"].append(return_value["status"])
+        # Parent keys of json
+        if not self.response_json:
+            self.response_json = {
+                "Request JSON": {"question": self.question},
+                "Response JSON": {
+                    "error": "",
+                    "status": ["", ""],
+                    "type": "insights",
+                    "data": ["", ""],
+                    "created_time": str(datetime.datetime.now(datetime.timezone.utc)).replace(
+                        "+00:00", "Z"
+                    ),
+                },
+            }
 
+        # Creation of Response JSON for track 3
+        self.response_json["Response JSON"]["status"].append(return_value["status"])
 
         data_dict = {}
         data_dict["insight_type"] = "summary"
@@ -1426,10 +1633,20 @@ class QueryInsights:
             data_dict["showError"] = True
         data_dict["bot_response"] = ""
 
-
         self.response_json["Response JSON"]["data"].append(data_dict)
         # JSON is created to be used for front-end applications.
 
+        if self.query_to_sql_run and self.table_to_chart_run:
+            # Save the JSON data to a file
+            output_file_path = "response.json"  # Set the desired file path
+            with self._fs.open(pp.join(self.output_path, output_file_path), "w") as json_file:
+                json.dump(self.response_json, json_file, indent=4)
+
+        track3_end_time = timeit.default_timer()
+
+        self.logger.info(
+            f"Time taken to run track 3: {round(track3_end_time - track3_start_time, 2)} seconds."
+        )
         completion_success_phrases = [
             "Done! Here are the results.",
             "All set! Here's what I found.",
@@ -1445,7 +1662,7 @@ class QueryInsights:
         status = self.response_json["Response JSON"]["status"]
         # if track 1 fails, response_for_history is updated in text to query function with bot response
         # if track 2 fails, table is returned so response can still be success message
-        if status[2]=="failure":
+        if status[2] == "failure":
             # if track 3 fails, response_for_history is updated with ""
             self.completion_response = random.choice(self.completion_error_phrases)
             self.response_json["Response JSON"]["response_for_history"] = ""
@@ -1653,7 +1870,10 @@ class QueryInsights:
         return skip_track2, skip_track3
 
     def run_query_insights(
-        self, question: str = None, additional_context: str = None
+        self,
+        question: str = None,
+        additional_context: str = None,
+        language: str = "english",
     ) -> Tuple[dict, dict, dict, dict]:
         """For a given question that may have additional context, run all tracks to generate chart and insight summary and display it to the user.
         Parameters
@@ -1662,6 +1882,8 @@ class QueryInsights:
             Business user query, by default None
         additional_context : str, optional
             Additional context to answer the question, by default None
+        language : str, optional
+            Language to answer the question in, for example "english", "spanish", "german", by default "english"
         Returns
         -------
         Tuple[dict, dict, dict]
@@ -1684,16 +1906,24 @@ class QueryInsights:
                 }
         """
 
+        # If language is None or empty string, default to "english" language
+        if language is None or not bool(str(language).strip()):
+            language = "english"
+        language = language.lower().title()
+        language = language
+
         # Track 1
         track1_output = self.text_to_query(
-            question=question, additional_context=additional_context
+            question=question,
+            additional_context=additional_context,
+            language=language,
         )
 
         skip_track2, skip_track3 = self._skip_tracks(track1_output)
 
         # Track 2
         if not skip_track2:
-            track2_output = self.query_to_chart()
+            track2_output = self.query_to_chart(language=language)
             if track2_output["status"] == "success":
                 self.logger.info("Chart is generated successfully.")
             else:
@@ -1705,7 +1935,7 @@ class QueryInsights:
 
         # Track 3
         if not skip_track3:
-            track3_output = self.table_to_insights()
+            track3_output = self.table_to_insights(language=language)
             # if track3_output["status"] == "failure":
             # raise ValueError(
             #     f"There was an error while running track 3. Error: {track3_output['output']}. Check logs for more information."

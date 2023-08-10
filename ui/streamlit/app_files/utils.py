@@ -1,6 +1,5 @@
 import os
 import streamlit as st
-from streamlit.components.v1 import html
 from views import quick_search
 
 
@@ -39,7 +38,7 @@ def set_page_config(route: str):
     route : str
         Current page query parameter
     """
-    
+
 
     st.set_page_config(layout="wide", page_title="Query Insights")
     st.set_option("deprecation.showPyplotGlobalUse", False)

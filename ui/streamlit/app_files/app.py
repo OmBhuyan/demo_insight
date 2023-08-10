@@ -26,7 +26,7 @@ inject_custom_css()
 
 # Hide default streamlit header, footer and main menu
 # hide_default_streamlit_style()
-# Run HTML nav bar page layout 
+# Run HTML nav bar page layout
 toggle_html_navbar()
 
 
@@ -45,4 +45,4 @@ components.html(
 
 
 
-   
+

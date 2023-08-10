@@ -3,7 +3,7 @@ import streamlit as st
 class Feedback:
 
     def __init__(
-            self, 
+            self,
             key,
             user_feedback
         ):

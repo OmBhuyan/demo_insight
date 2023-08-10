@@ -51,8 +51,6 @@ skip_list: []
 
 # OpenAI connection parameters
 connection_params:
-  # Model platform - Can be openai or azure
-  platform: "azure"
   # API type - Can be openai or azure
   api_type: "azure"
   # End point of Azure OpenAI resource group

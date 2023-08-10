@@ -4,11 +4,14 @@ import time
 
 import gradio as gr
 from feedback import Feedback
-from query_insights.api import BotResponse, QueryInsights
+
+from query_insights.api import BotResponse, QueryInsights, config_init
 
 
 class ChatUI:
-    def __init__(self, user_config_path, data_config_path, model_config_path, debug_config_path):
+    def __init__(
+        self, user_config: dict, data_config: dict, model_config: dict, debug_config: dict
+    ):
         """
         initializes all the self variables
 
@@ -30,10 +33,10 @@ class ChatUI:
         #     self.id = 1
         self.api_key = os.environ.get("OPENAI_API_KEY")
         # self.api_key = os.environ["OPENAI_API_KEY"]
-        self.user_config_path = user_config_path
-        self.data_config_path = data_config_path
-        self.model_config_path = model_config_path
-        self.debug_config_path = debug_config_path
+        self.user_config = user_config
+        self.data_config = data_config
+        self.model_config = model_config
+        self.debug_config = debug_config
 
         self.track1_query = None
         self.track1_table = None
@@ -484,10 +487,10 @@ class ChatUI:
                     queue=False,
                 ).then(
                     lambda: QueryInsights(
-                        user_config_path=self.user_config_path,
-                        data_config_path=self.data_config_path,
-                        model_config_path=self.model_config_path,
-                        debug_config_path=self.debug_config_path,
+                        user_config=self.user_config,
+                        data_config=self.data_config,
+                        model_config=self.model_config,
+                        debug_config=self.debug_config,
                         logging_level="DEBUG",
                         api_key=self.api_key,
                     ),
@@ -626,11 +629,14 @@ if __name__ == "__main__":
     model_config_path = "ui/gradio/app_files/config/local/model_config_ui.yaml"
     debug_config_path = "configs/debug_code_config.yaml"
 
-    chat_ins = ChatUI(
-        user_config_path=user_config_path,
-        data_config_path=data_config_path,
-        model_config_path=model_config_path,
-        debug_config_path=debug_config_path,
+    user_config, data_config, model_config, debug_config = config_init(
+        user_config_path, data_config_path, model_config_path, debug_config_path
     )
 
+    chat_ins = ChatUI(
+        user_config=user_config,
+        data_config=data_config,
+        model_config=model_config,
+        debug_config=debug_config,
+    )
     chat_ins.run_chat_ui()

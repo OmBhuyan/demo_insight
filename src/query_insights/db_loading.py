@@ -19,12 +19,8 @@ class DatabaseLoading:
 
     Parameters
     ----------
-    user_config : dict
-        input user_config dictionary for storing and accessing user-specific configurations.
     data_config : dict
         input data_config dictionary contains the paths to the data.
-    model_config : dict
-        input model_config dictionary for storing and accessing model-related configurations.
     database_name : str
         Database name where the table will be stored
     fs_key : str
@@ -33,17 +29,13 @@ class DatabaseLoading:
 
     def __init__(
         self,
-        user_config: dict,
         data_config: dict,
-        model_config: dict,
         fs_key: str,
         database_name: str = None,
     ):
         self.logger = logging.getLogger(MYLOGGERNAME)
 
-        self.user_config = user_config
         self.data_config = data_config
-        self.model_config = model_config
         self.database = self.data_config.db_params.db_name
         self.database_name = database_name
 

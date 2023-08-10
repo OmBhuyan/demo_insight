@@ -1,0 +1,27 @@
+text_to_query:
+  error_invalid_column:
+    error_pattern: "no such column"
+    debug_prompt: "To correct this SQL, can you relook at column <column_name> by checking whether the column is from correct table? Generate response as per the previous guidelines."
+
+  error_ambiguous_column:
+    error_pattern: "ambiguous column name"
+    debug_prompt: "To correct this SQL, can you relook at column <column_name>. It may be present in multiple table, so use proper aliases. Generate response as per the previous guidelines."
+
+  error_syntax:
+    error_pattern: "syntax error"
+    debug_prompt: "can you relook at SQL? It is raising syntax error. Generate response as per the previous guidelines."
+
+  error_alter:
+    error_pattern: "ALTER or DROP TABLE query detected"
+    debug_prompt: "Instead of Alter or drop table or create table, can you generate SQL with Common table expressions(CTE) or WITH clause? Generate response as per the previous guidelines."
+
+
+query_to_chart_code:
+  error_pattern:
+  debug_prompt:
+  feed_original_bot_response:
+
+insight_questions_to_code:
+  error_pattern:
+  debug_prompt:
+  feed_original_bot_response:

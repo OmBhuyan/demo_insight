@@ -7,6 +7,7 @@ from typing import Tuple
 import fsspec
 import numpy as np
 import pandas as pd
+import timeit
 
 from .model_api import GPTModelCall
 from .post_processing import (
@@ -38,6 +39,8 @@ class TextToQuery:
         input user_config dictionary for storing and accessing user-specific configurations.
     model_config : dict
         input model_config dictionary for storing and accessing model-related configurations.
+    data_config : dict
+        input data_config dictionary contains the paths to the data
     debug_config: dict
         Debug config dictionary for using appropriate prompts to make requests for debugging to GPT.
     question : str
@@ -50,6 +53,8 @@ class TextToQuery:
         to connect to SQL DB
     output_path : str
         path to save the results
+    language : str
+        Language to answer the question in, for example "english", "spanish", "german", by default "english"
     skip_model : bool
         condition whether to skip the api call.
     fs : fsspec.filesystem, optional
@@ -66,6 +71,7 @@ class TextToQuery:
         self,
         user_config,
         model_config,
+        data_config,
         debug_config,
         question,
         additional_context,
@@ -75,6 +81,7 @@ class TextToQuery:
         db_connection,
         output_path,
         similarity,
+        language: str = "english",
         skip_model: bool = False,
         fs=None,
     ) -> None:
@@ -87,6 +94,8 @@ class TextToQuery:
         self.connection_param_dict = user_config.connection_params
         self.text_to_query_debug_dict = debug_config.text_to_query
         self.ui = user_config.ui
+
+        self.db_params = data_config.db_params
 
         # Business user query related
         self.question = question
@@ -105,6 +114,13 @@ class TextToQuery:
         self.output_table = None
         self.output_query = None
         self.output_table_dict = None
+
+        # If language is None or empty string, default to "english" language
+        if language is None or not bool(str(language).strip()):
+            language = "english"
+        language = language.lower().title()
+
+        self.language = language
 
         self._fs = fs or fsspec.filesystem("file")
         self.prompt_dict["static_prompt_original"] = self.prompt_dict["static_prompt"]
@@ -139,6 +155,8 @@ class TextToQuery:
             question=self.question,
             additional_context=self.additional_context,
             connection_param_dict=self.connection_param_dict,
+            language=self.language,
+            db_param_dict=self.db_params,
             dictionary=self.data_dictionary,
             business_overview=self.business_overview,
             sample_input=sample_input,
@@ -658,18 +676,37 @@ class TextToQuery:
             None
         """
         if not skip_api_call:
+            start_time_to_call_api_for_sql = timeit.default_timer()
+
             self.logger.info("Calling the API for SQL generation.")
             (
                 self.query_model_output,
                 self.query_model_finish,
                 self.query_model_tokens,
             ) = self._call_model_api()
+            end_time_to_call_api_for_sql = timeit.default_timer()
 
+            self.logger.info(
+                f"Time taken to generate the SQL: {round(end_time_to_call_api_for_sql - start_time_to_call_api_for_sql, 2)} seconds."
+            )
+
+        start_time_to_run_sql = timeit.default_timer()
         self.logger.info("Executing the SQL to generate output.")
         self._run_sql()
+        end_time_to_run_sql = timeit.default_timer()
 
+        self.logger.info(
+            f"Time taken to execute the SQL: {round(end_time_to_run_sql - start_time_to_run_sql, 2)} seconds."
+        )
+
+        start_time_to_save_outputs = timeit.default_timer()
         self.logger.info("Saving the output to predefined paths.")
         self._save_outputs()
+        end_time_to_save_outputs = timeit.default_timer()
+
+        self.logger.info(
+            f"Time taken to save the output table: {round(end_time_to_save_outputs - start_time_to_save_outputs, 2)} seconds."
+        )
 
         self.logger.info("Text to Query is completed.")
         return
@@ -684,6 +721,7 @@ class BotResponse:
         error_message=None,
         skip_model=False,
         mode="rule_based",
+        language: str = "english",
     ):
         if mode == "model_based":
             self.prompt_dict = model_config.bot_response.prompts
@@ -696,6 +734,11 @@ class BotResponse:
                 self.conversation_history += f"bot: {conv[1]}\n"
             self.conversation_history += f"user: {conversation_history[-1][0]}"
             self.initialize_model_attr()
+
+            # If language is None or empty string, default to "english" language
+            if language is None or not bool(str(language).strip()):
+                language = "english"
+            self.language = language.lower().title()
 
             # Required for decorator
             time_delay = user_config.time_delay
@@ -726,6 +769,8 @@ class BotResponse:
             question=None,
             additional_context=None,
             connection_param_dict=self.connection_param_dict,
+            language=self.language,
+            db_param_dict=self.db_params,
             dictionary=None,
             business_overview=None,
             suggestion=None,
